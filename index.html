@@ -434,6 +434,18 @@
             const loginError = document.getElementById('login-error');
             const loginOverlay = document.getElementById('login-overlay');
 
+            // Check if password is in URL (e.g., ?password=TripX9k2)
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlPassword = urlParams.get('password');
+
+            if (urlPassword === CORRECT_PASSWORD) {
+                // Password in URL is correct - skip login screen
+                loginOverlay.classList.add('hidden');
+                initApp();
+                return;
+            }
+
+            // Set up manual login form
             loginForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const enteredPassword = passwordInput.value;

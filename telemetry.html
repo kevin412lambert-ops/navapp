@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Road Trip Telemetry</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e5e5e5;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .header .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 15px;
+            gap: 15px;
+        }
+
+        /* Telemetry Cards */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .telemetry-card {
+            background: #2d2d2d;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .telemetry-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .telemetry-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .telemetry-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f97316;
+            line-height: 1;
+        }
+
+        .telemetry-value.large {
+            font-size: 36px;
+        }
+
+        .telemetry-unit {
+            font-size: 16px;
+            color: #666;
+            margin-left: 4px;
+        }
+
+        .telemetry-secondary {
+            font-size: 14px;
+            color: #999;
+            margin-top: 8px;
+        }
+
+        /* Map Section */
+        .map-section {
+            background: #2d2d2d;
+            border-radius: 12px;
+            overflow: hidden;
+            height: 250px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Exits List */
+        .exits-section {
+            background: #2d2d2d;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .exits-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #f97316;
+        }
+
+        .exit-item {
+            background: #3a3a3a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .exit-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .exit-name {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .exit-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            gap: 12px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        /* Status Indicator */
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-indicator.active {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.waiting {
+            background: #f59e0b;
+        }
+
+        .status-indicator.error {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Landscape Layout */
+        @media (min-width: 768px) and (orientation: landscape) {
+            .main-content {
+                flex-direction: row;
+            }
+
+            .left-panel {
+                flex: 1;
+                overflow-y: auto;
+            }
+
+            .right-panel {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .map-section {
+                flex: 1;
+                height: auto;
+            }
+        }
+
+        /* Login Screen */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .login-overlay.hidden {
+            display: none;
+        }
+
+        .login-box {
+            background: #2d2d2d;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .login-box h2 {
+            color: #f97316;
+            font-size: 28px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .login-box p {
+            color: #999;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-input {
+            width: 100%;
+            padding: 15px;
+            background: #3a3a3a;
+            border: 2px solid #4a4a4a;
+            border-radius: 8px;
+            color: #e5e5e5;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border-color 0.3s;
+        }
+
+        .login-input:focus {
+            outline: none;
+            border-color: #f97316;
+        }
+
+        .login-button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(249, 115, 22, 0.4);
+        }
+
+        .login-button:active {
+            transform: translateY(0);
+        }
+
+        .login-error {
+            color: #ef4444;
+            font-size: 14px;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .login-error.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-box">
+            <h2>🔒 Access Required</h2>
+            <p>Enter password to view telemetry</p>
+            <form id="login-form" onsubmit="return false;">
+                <input
+                    type="password"
+                    class="login-input"
+                    id="password-input"
+                    placeholder="Enter password"
+                    autocomplete="off"
+                    autofocus
+                >
+                <button type="submit" class="login-button" id="login-button">Unlock</button>
+                <div class="login-error" id="login-error">Incorrect password</div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚗 Road Trip Telemetry</h1>
+            <div class="subtitle">
+                <span class="status-indicator waiting" id="status-dot"></span>
+                <span id="status-text">Initializing GPS...</span>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Left Panel: Telemetry -->
+            <div class="left-panel">
+                <div class="telemetry-grid">
+                    <!-- Speed -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-label">Speed</div>
+                        <div class="telemetry-value large">
+                            <span id="speed">--</span>
+                            <span class="telemetry-unit">mph</span>
+                        </div>
+                    </div>
+
+                    <!-- Heading -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-label">Heading</div>
+                        <div class="telemetry-value">
+                            <span id="heading">--</span>
+                            <span class="telemetry-unit">°</span>
+                        </div>
+                        <div class="telemetry-secondary" id="direction">--</div>
+                    </div>
+
+                    <!-- Accuracy -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-label">GPS Accuracy</div>
+                        <div class="telemetry-value">
+                            <span id="accuracy">--</span>
+                            <span class="telemetry-unit">ft</span>
+                        </div>
+                    </div>
+
+                    <!-- Altitude -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-label">Altitude</div>
+                        <div class="telemetry-value">
+                            <span id="altitude">--</span>
+                            <span class="telemetry-unit">ft</span>
+                        </div>
+                    </div>
+
+                    <!-- Coordinates -->
+                    <div class="telemetry-card full-width">
+                        <div class="telemetry-label">GPS Coordinates</div>
+                        <div class="telemetry-secondary" id="coordinates">--</div>
+                    </div>
+
+                    <!-- Current Road/Highway -->
+                    <div class="telemetry-card full-width">
+                        <div class="telemetry-label">Current Road</div>
+                        <div class="telemetry-value" style="font-size: 20px;" id="road-name">Detecting...</div>
+                        <div class="telemetry-secondary" id="road-type">--</div>
+                    </div>
+                </div>
+
+                <!-- Upcoming Exits -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Nearby Exits (0.5 mi ahead)</div>
+                    <div id="exits-list">
+                        <div class="no-data">No exits nearby</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Map -->
+            <div class="right-panel">
+                <div class="map-section">
+                    <div id="map"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // ==================== PASSWORD PROTECTION ====================
+        const CORRECT_PASSWORD = 'TripX9k2'; // Random access password
+
+        // Handle login
+        document.addEventListener('DOMContentLoaded', () => {
+            const loginForm = document.getElementById('login-form');
+            const passwordInput = document.getElementById('password-input');
+            const loginButton = document.getElementById('login-button');
+            const loginError = document.getElementById('login-error');
+            const loginOverlay = document.getElementById('login-overlay');
+
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const enteredPassword = passwordInput.value;
+
+                if (enteredPassword === CORRECT_PASSWORD) {
+                    // Correct password - hide login and start app
+                    loginOverlay.classList.add('hidden');
+                    initApp();
+                } else {
+                    // Wrong password - show error
+                    loginError.classList.add('show');
+                    passwordInput.value = '';
+                    passwordInput.focus();
+
+                    // Hide error after 2 seconds
+                    setTimeout(() => {
+                        loginError.classList.remove('show');
+                    }, 2000);
+                }
+            });
+
+            loginButton.addEventListener('click', () => {
+                loginForm.dispatchEvent(new Event('submit'));
+            });
+        });
+
+        // ==================== STATE ====================
+        let map = null;
+        let userMarker = null;
+        let exitMarkers = [];
+
+        let currentLocation = null;
+        let previousLocation = null;
+        let roadInfo = null;
+        let nearbyExits = [];
+
+        const UPDATE_INTERVAL = 1000; // Update display every second
+        const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
+        const EXIT_QUERY_INTERVAL = 10000; // Query exits every 10 seconds
+
+        let lastRoadQuery = 0;
+        let lastExitQuery = 0;
+
+        // ==================== INIT ====================
+        function initApp() {
+            initMap();
+            initGPS();
+            setInterval(updateDisplay, UPDATE_INTERVAL);
+        }
+
+        function initMap() {
+            map = L.map('map', {
+                center: [37.7749, -122.4194],
+                zoom: 15,
+                zoomControl: true
+            });
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        function initGPS() {
+            if (!('geolocation' in navigator)) {
+                updateStatus('GPS not supported', 'error');
+                return;
+            }
+
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0
+            };
+
+            navigator.geolocation.watchPosition(
+                handleLocationUpdate,
+                handleLocationError,
+                options
+            );
+        }
+
+        // ==================== LOCATION UPDATES ====================
+        function handleLocationUpdate(position) {
+            const coords = position.coords;
+
+            // Save previous location
+            if (currentLocation) {
+                previousLocation = { ...currentLocation };
+            }
+
+            // Update current location
+            currentLocation = {
+                lat: coords.latitude,
+                lng: coords.longitude,
+                speed: coords.speed, // m/s
+                heading: coords.heading, // degrees
+                accuracy: coords.accuracy, // meters
+                altitude: coords.altitude, // meters
+                altitudeAccuracy: coords.altitudeAccuracy,
+                timestamp: position.timestamp
+            };
+
+            // Update map marker
+            updateMapMarker();
+
+            // Update status
+            updateStatus('GPS Active', 'active');
+
+            // Query road info periodically
+            const now = Date.now();
+            if (now - lastRoadQuery > ROAD_QUERY_INTERVAL) {
+                lastRoadQuery = now;
+                queryRoadInfo();
+            }
+
+            // Query nearby exits periodically
+            if (now - lastExitQuery > EXIT_QUERY_INTERVAL) {
+                lastExitQuery = now;
+                queryNearbyExits();
+            }
+        }
+
+        function handleLocationError(error) {
+            console.error('GPS Error:', error);
+            updateStatus('GPS Error', 'error');
+        }
+
+        // ==================== MAP MARKER ====================
+        function updateMapMarker() {
+            if (!currentLocation) return;
+
+            const latlng = [currentLocation.lat, currentLocation.lng];
+
+            if (userMarker) {
+                userMarker.setLatLng(latlng);
+            } else {
+                userMarker = L.circleMarker(latlng, {
+                    radius: 10,
+                    fillColor: '#4285F4',
+                    color: '#ffffff',
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(map);
+
+                map.setView(latlng, 15);
+            }
+
+            // Re-center map
+            map.panTo(latlng);
+        }
+
+        // ==================== ROAD INFO QUERY ====================
+        async function queryRoadInfo() {
+            if (!currentLocation) return;
+
+            try {
+                // Use Nominatim reverse geocoding
+                const url = `https://nominatim.openstreetmap.org/reverse?` +
+                    `format=json&lat=${currentLocation.lat}&lon=${currentLocation.lng}&zoom=18`;
+
+                const response = await fetch(url, {
+                    headers: { 'User-Agent': 'Road Trip Telemetry' }
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                roadInfo = {
+                    road: data.address?.road || 'Unknown',
+                    highway: data.address?.highway || data.address?.motorway || null,
+                    houseNumber: data.address?.house_number || null,
+                    city: data.address?.city || data.address?.town || data.address?.village || 'Unknown',
+                    state: data.address?.state || '',
+                    type: determineRoadType(data)
+                };
+
+                console.log('Road info:', roadInfo);
+            } catch (error) {
+                console.error('Road query failed:', error);
+            }
+        }
+
+        function determineRoadType(data) {
+            const address = data.address || {};
+
+            if (address.motorway || address.highway) {
+                return 'Highway';
+            }
+
+            const road = (address.road || '').toLowerCase();
+
+            if (road.includes('interstate') || road.includes('i-')) {
+                return 'Interstate';
+            } else if (road.includes('highway') || road.includes('us-') || road.includes('state route')) {
+                return 'Highway';
+            } else if (road.includes('freeway') || road.includes('expressway')) {
+                return 'Freeway';
+            } else if (address.road) {
+                return 'Surface Street';
+            }
+
+            return 'Unknown';
+        }
+
+        // ==================== NEARBY EXITS QUERY ====================
+        async function queryNearbyExits() {
+            if (!currentLocation) return;
+
+            try {
+                // Query Overpass for motorway junctions within 800m (0.5 mi)
+                const query = `
+                    [out:json][timeout:5];
+                    (
+                        node["highway"="motorway_junction"](around:800,${currentLocation.lat},${currentLocation.lng});
+                    );
+                    out body;
+                `;
+
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: query
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                nearbyExits = data.elements.map(element => {
+                    const distance = calculateDistance(
+                        currentLocation.lat,
+                        currentLocation.lng,
+                        element.lat,
+                        element.lon
+                    );
+
+                    return {
+                        id: element.id,
+                        name: element.tags?.ref ? `Exit ${element.tags.ref}` :
+                              element.tags?.name || 'Exit',
+                        ref: element.tags?.ref || null,
+                        lat: element.lat,
+                        lng: element.lon,
+                        distance: distance
+                    };
+                });
+
+                // Sort by distance
+                nearbyExits.sort((a, b) => a.distance - b.distance);
+
+                console.log('Nearby exits:', nearbyExits.length);
+                updateExitsDisplay();
+            } catch (error) {
+                console.error('Exit query failed:', error);
+            }
+        }
+
+        // ==================== DISPLAY UPDATES ====================
+        function updateDisplay() {
+            if (!currentLocation) return;
+
+            // Speed (convert m/s to mph)
+            const speedMph = currentLocation.speed !== null ?
+                (currentLocation.speed * 2.237).toFixed(0) : '--';
+            document.getElementById('speed').textContent = speedMph;
+
+            // Heading
+            let heading = currentLocation.heading;
+
+            // Calculate heading from movement if GPS heading not available
+            if ((heading === null || heading === undefined) && previousLocation && currentLocation.speed > 1) {
+                heading = calculateBearing(
+                    previousLocation.lat,
+                    previousLocation.lng,
+                    currentLocation.lat,
+                    currentLocation.lng
+                );
+            }
+
+            if (heading !== null && heading !== undefined) {
+                document.getElementById('heading').textContent = heading.toFixed(0);
+                document.getElementById('direction').textContent = getCardinalDirection(heading);
+            } else {
+                document.getElementById('heading').textContent = '--';
+                document.getElementById('direction').textContent = 'Stationary';
+            }
+
+            // Accuracy (convert meters to feet)
+            const accuracyFt = (currentLocation.accuracy * 3.28084).toFixed(0);
+            document.getElementById('accuracy').textContent = accuracyFt;
+
+            // Altitude (convert meters to feet)
+            if (currentLocation.altitude !== null) {
+                const altitudeFt = (currentLocation.altitude * 3.28084).toFixed(0);
+                document.getElementById('altitude').textContent = altitudeFt;
+            } else {
+                document.getElementById('altitude').textContent = '--';
+            }
+
+            // Coordinates
+            document.getElementById('coordinates').textContent =
+                `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
+
+            // Road info
+            if (roadInfo) {
+                const roadName = roadInfo.highway || roadInfo.road;
+                document.getElementById('road-name').textContent = roadName;
+                document.getElementById('road-type').textContent =
+                    `${roadInfo.type} • ${roadInfo.city}, ${roadInfo.state}`;
+            }
+        }
+
+        function updateExitsDisplay() {
+            const exitsList = document.getElementById('exits-list');
+
+            if (nearbyExits.length === 0) {
+                exitsList.innerHTML = '<div class="no-data">No exits within 0.5 miles</div>';
+
+                // Clear markers
+                exitMarkers.forEach(marker => map.removeLayer(marker));
+                exitMarkers = [];
+                return;
+            }
+
+            // Display exits
+            exitsList.innerHTML = nearbyExits.map(exit => `
+                <div class="exit-item">
+                    <div class="exit-name">${exit.name}</div>
+                    <div class="exit-meta">
+                        <span>📍 ${exit.distance.toFixed(2)} mi</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Update map markers
+            exitMarkers.forEach(marker => map.removeLayer(marker));
+            exitMarkers = [];
+
+            nearbyExits.slice(0, 5).forEach(exit => {
+                const marker = L.circleMarker([exit.lat, exit.lng], {
+                    radius: 6,
+                    fillColor: '#f97316',
+                    color: '#ffffff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(map);
+
+                marker.bindPopup(`<strong>${exit.name}</strong><br>${exit.distance.toFixed(2)} mi`);
+                exitMarkers.push(marker);
+            });
+        }
+
+        // ==================== UTILITIES ====================
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 3959; // Earth radius in miles
+            const dLat = toRad(lat2 - lat1);
+            const dLng = toRad(lng2 - lng1);
+
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function calculateBearing(lat1, lng1, lat2, lng2) {
+            const dLng = toRad(lng2 - lng1);
+            const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+            const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+                      Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+            const bearing = Math.atan2(y, x);
+            return (toDeg(bearing) + 360) % 360;
+        }
+
+        function toRad(degrees) {
+            return degrees * (Math.PI / 180);
+        }
+
+        function toDeg(radians) {
+            return radians * (180 / Math.PI);
+        }
+
+        function getCardinalDirection(heading) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(((heading % 360) / 45)) % 8;
+            return directions[index];
+        }
+
+        function updateStatus(text, state) {
+            document.getElementById('status-text').textContent = text;
+            const dot = document.getElementById('status-dot');
+            dot.className = 'status-indicator ' + state;
+        }
+    </script>
+</body>
+</html>

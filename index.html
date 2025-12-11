@@ -408,6 +408,55 @@
                         <div class="no-data">No exits nearby</div>
                     </div>
                 </div>
+
+                <!-- Weather Section -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Current Weather</div>
+                    <div class="telemetry-grid" style="margin-top: 12px;">
+                        <!-- Temperature -->
+                        <div class="telemetry-card">
+                            <div class="telemetry-label">Temperature</div>
+                            <div class="telemetry-value">
+                                <span id="weather-temp">--</span>
+                                <span class="telemetry-unit">°F</span>
+                            </div>
+                        </div>
+
+                        <!-- Feels Like -->
+                        <div class="telemetry-card">
+                            <div class="telemetry-label">Feels Like</div>
+                            <div class="telemetry-value">
+                                <span id="weather-feels">--</span>
+                                <span class="telemetry-unit">°F</span>
+                            </div>
+                        </div>
+
+                        <!-- Humidity -->
+                        <div class="telemetry-card">
+                            <div class="telemetry-label">Humidity</div>
+                            <div class="telemetry-value">
+                                <span id="weather-humidity">--</span>
+                                <span class="telemetry-unit">%</span>
+                            </div>
+                        </div>
+
+                        <!-- Wind -->
+                        <div class="telemetry-card">
+                            <div class="telemetry-label">Wind</div>
+                            <div class="telemetry-value" style="font-size: 20px;">
+                                <span id="weather-wind">--</span>
+                                <span class="telemetry-unit">mph</span>
+                            </div>
+                            <div class="telemetry-secondary" id="weather-wind-dir">--</div>
+                        </div>
+
+                        <!-- Condition -->
+                        <div class="telemetry-card full-width">
+                            <div class="telemetry-label">Condition</div>
+                            <div class="telemetry-value" style="font-size: 20px;" id="weather-condition">Loading...</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Panel: Map -->
@@ -481,13 +530,16 @@
         let previousLocation = null;
         let roadInfo = null;
         let nearbyExits = [];
+        let weatherData = null;
 
         const UPDATE_INTERVAL = 1000; // Update display every second
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
         const EXIT_QUERY_INTERVAL = 10000; // Query exits every 10 seconds
+        const WEATHER_QUERY_INTERVAL = 300000; // Query weather every 5 minutes
 
         let lastRoadQuery = 0;
         let lastExitQuery = 0;
+        let lastWeatherQuery = 0;
 
         // ==================== INIT ====================
         function initApp() {
@@ -566,6 +618,12 @@
             if (now - lastExitQuery > EXIT_QUERY_INTERVAL) {
                 lastExitQuery = now;
                 queryNearbyExits();
+            }
+
+            // Query weather periodically
+            if (now - lastWeatherQuery > WEATHER_QUERY_INTERVAL) {
+                lastWeatherQuery = now;
+                queryWeather();
             }
         }
 
@@ -703,6 +761,90 @@
             } catch (error) {
                 console.error('Exit query failed:', error);
             }
+        }
+
+        // ==================== WEATHER QUERY ====================
+        async function queryWeather() {
+            if (!currentLocation) return;
+
+            try {
+                // Use Open-Meteo API (completely free, no API key needed, real data)
+                const url = `https://api.open-meteo.com/v1/forecast?` +
+                    `latitude=${currentLocation.lat}&` +
+                    `longitude=${currentLocation.lng}&` +
+                    `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m&` +
+                    `temperature_unit=fahrenheit&` +
+                    `wind_speed_unit=mph`;
+
+                const response = await fetch(url);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const current = data.current;
+
+                weatherData = {
+                    temp: current.temperature_2m,
+                    feelsLike: current.apparent_temperature,
+                    humidity: current.relative_humidity_2m,
+                    windSpeed: current.wind_speed_10m,
+                    windDirection: current.wind_direction_10m,
+                    condition: getWeatherCondition(current.weather_code)
+                };
+
+                updateWeatherDisplay();
+                console.log('Weather updated:', weatherData);
+            } catch (error) {
+                console.error('Weather query failed:', error);
+            }
+        }
+
+        function getWeatherCondition(code) {
+            // WMO Weather interpretation codes
+            const conditions = {
+                0: 'Clear',
+                1: 'Mostly Clear',
+                2: 'Partly Cloudy',
+                3: 'Cloudy',
+                45: 'Foggy',
+                48: 'Rime Fog',
+                51: 'Light Drizzle',
+                53: 'Drizzle',
+                55: 'Heavy Drizzle',
+                61: 'Light Rain',
+                63: 'Rain',
+                65: 'Heavy Rain',
+                71: 'Light Snow',
+                73: 'Snow',
+                75: 'Heavy Snow',
+                77: 'Snow Grains',
+                80: 'Light Showers',
+                81: 'Showers',
+                82: 'Heavy Showers',
+                85: 'Light Snow Showers',
+                86: 'Snow Showers',
+                95: 'Thunderstorm',
+                96: 'Thunderstorm w/ Hail',
+                99: 'Severe Thunderstorm'
+            };
+            return conditions[code] || 'Unknown';
+        }
+
+        function getWindDirection(degrees) {
+            const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+            const index = Math.round(degrees / 22.5) % 16;
+            return directions[index];
+        }
+
+        function updateWeatherDisplay() {
+            if (!weatherData) return;
+
+            document.getElementById('weather-temp').textContent = weatherData.temp.toFixed(0);
+            document.getElementById('weather-feels').textContent = weatherData.feelsLike.toFixed(0);
+            document.getElementById('weather-humidity').textContent = weatherData.humidity;
+            document.getElementById('weather-wind').textContent = weatherData.windSpeed.toFixed(0);
+            document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
+            document.getElementById('weather-condition').textContent = weatherData.condition;
         }
 
         // ==================== DISPLAY UPDATES ====================

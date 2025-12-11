@@ -339,9 +339,13 @@
         <!-- Header -->
         <div class="header">
             <h1>🚗 Road Trip Telemetry</h1>
-            <div class="subtitle">
-                <span class="status-indicator waiting" id="status-dot"></span>
-                <span id="status-text">Initializing GPS...</span>
+            <div class="subtitle" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-indicator waiting" id="status-dot"></span>
+                    <span id="status-text">Initializing GPS...</span>
+                    <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
+                </div>
+                <div id="coordinates-inline" style="font-size: 11px; opacity: 0.7;">--</div>
             </div>
         </div>
 
@@ -349,7 +353,15 @@
         <div class="main-content">
             <!-- Left Panel: Telemetry -->
             <div class="left-panel">
-                <div class="telemetry-grid">
+                <!-- Current Road/Highway -->
+                <div class="telemetry-card full-width" style="margin-bottom: 12px;">
+                    <div class="telemetry-label">Current Road</div>
+                    <div class="telemetry-value" style="font-size: 20px;" id="road-name">Detecting...</div>
+                    <div class="telemetry-secondary" id="road-type">--</div>
+                </div>
+
+                <!-- Speed, Heading, Altitude Row -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px;">
                     <!-- Speed -->
                     <div class="telemetry-card">
                         <div class="telemetry-label">Speed</div>
@@ -369,15 +381,6 @@
                         <div class="telemetry-secondary" id="direction">--</div>
                     </div>
 
-                    <!-- Accuracy -->
-                    <div class="telemetry-card">
-                        <div class="telemetry-label">GPS Accuracy</div>
-                        <div class="telemetry-value">
-                            <span id="accuracy">--</span>
-                            <span class="telemetry-unit">ft</span>
-                        </div>
-                    </div>
-
                     <!-- Altitude -->
                     <div class="telemetry-card">
                         <div class="telemetry-label">Altitude</div>
@@ -385,19 +388,6 @@
                             <span id="altitude">--</span>
                             <span class="telemetry-unit">ft</span>
                         </div>
-                    </div>
-
-                    <!-- Coordinates -->
-                    <div class="telemetry-card full-width">
-                        <div class="telemetry-label">GPS Coordinates</div>
-                        <div class="telemetry-secondary" id="coordinates">--</div>
-                    </div>
-
-                    <!-- Current Road/Highway -->
-                    <div class="telemetry-card full-width">
-                        <div class="telemetry-label">Current Road</div>
-                        <div class="telemetry-value" style="font-size: 20px;" id="road-name">Detecting...</div>
-                        <div class="telemetry-secondary" id="road-type">--</div>
                     </div>
                 </div>
 
@@ -454,6 +444,12 @@
                         <div class="telemetry-card full-width">
                             <div class="telemetry-label">Condition</div>
                             <div class="telemetry-value" style="font-size: 20px;" id="weather-condition">Loading...</div>
+                        </div>
+
+                        <!-- Sunrise/Sunset -->
+                        <div class="telemetry-card full-width">
+                            <div class="telemetry-label" id="sun-label">--</div>
+                            <div class="telemetry-value" style="font-size: 20px;" id="sun-time">--</div>
                         </div>
                     </div>
                 </div>
@@ -773,6 +769,8 @@
                     `latitude=${currentLocation.lat}&` +
                     `longitude=${currentLocation.lng}&` +
                     `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m&` +
+                    `daily=sunrise,sunset&` +
+                    `timezone=auto&` +
                     `temperature_unit=fahrenheit&` +
                     `wind_speed_unit=mph`;
 
@@ -781,6 +779,7 @@
 
                 const data = await response.json();
                 const current = data.current;
+                const daily = data.daily;
 
                 weatherData = {
                     temp: current.temperature_2m,
@@ -788,7 +787,9 @@
                     humidity: current.relative_humidity_2m,
                     windSpeed: current.wind_speed_10m,
                     windDirection: current.wind_direction_10m,
-                    condition: getWeatherCondition(current.weather_code)
+                    condition: getWeatherCondition(current.weather_code),
+                    sunrise: daily.sunrise[0],  // Today's sunrise (ISO 8601 format)
+                    sunset: daily.sunset[0]     // Today's sunset (ISO 8601 format)
                 };
 
                 updateWeatherDisplay();
@@ -845,6 +846,56 @@
             document.getElementById('weather-wind').textContent = weatherData.windSpeed.toFixed(0);
             document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
             document.getElementById('weather-condition').textContent = weatherData.condition;
+
+            // Update sunrise/sunset
+            if (weatherData.sunrise && weatherData.sunset) {
+                const now = new Date();
+                const sunrise = new Date(weatherData.sunrise);
+                const sunset = new Date(weatherData.sunset);
+                const sunsetPlus30 = new Date(sunset.getTime() + 30 * 60 * 1000); // 30 minutes after sunset
+
+                const sunLabelEl = document.getElementById('sun-label');
+                const sunTimeEl = document.getElementById('sun-time');
+
+                // Determine what to show based on time of day
+                if (now < sunrise) {
+                    // Before sunrise - show sunrise
+                    sunLabelEl.textContent = 'Sunrise';
+                    sunTimeEl.textContent = formatTime(sunrise);
+                    sunTimeEl.style.opacity = '1';
+                    sunTimeEl.style.color = '#f97316';
+                } else if (now >= sunrise && now < sunset) {
+                    // After sunrise, before sunset - show sunset
+                    sunLabelEl.textContent = 'Sunset';
+                    sunTimeEl.textContent = formatTime(sunset);
+                    sunTimeEl.style.opacity = '1';
+                    sunTimeEl.style.color = '#f97316';
+                } else if (now >= sunset && now < sunsetPlus30) {
+                    // Within 30 minutes after sunset - show sunset with different styling
+                    sunLabelEl.textContent = 'Sunset (passed)';
+                    sunTimeEl.textContent = formatTime(sunset);
+                    sunTimeEl.style.opacity = '0.6';
+                    sunTimeEl.style.color = '#999';
+                } else {
+                    // More than 30 minutes after sunset - show next sunrise
+                    sunLabelEl.textContent = 'Sunrise (tomorrow)';
+                    const tomorrowSunrise = new Date(sunrise.getTime() + 24 * 60 * 60 * 1000);
+                    sunTimeEl.textContent = formatTime(tomorrowSunrise);
+                    sunTimeEl.style.opacity = '1';
+                    sunTimeEl.style.color = '#f97316';
+                }
+            }
+        }
+
+        function formatTime(date) {
+            // Format as 12-hour time (e.g., "6:45 PM")
+            let hours = date.getHours();
+            const minutes = date.getMinutes();
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // 0 should be 12
+            const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+            return `${hours}:${minutesStr} ${ampm}`;
         }
 
         // ==================== DISPLAY UPDATES ====================
@@ -877,9 +928,9 @@
                 document.getElementById('direction').textContent = 'Stationary';
             }
 
-            // Accuracy (convert meters to feet)
+            // Accuracy (convert meters to feet) - inline in header
             const accuracyFt = (currentLocation.accuracy * 3.28084).toFixed(0);
-            document.getElementById('accuracy').textContent = accuracyFt;
+            document.getElementById('accuracy-inline').textContent = `±${accuracyFt}ft`;
 
             // Altitude (convert meters to feet)
             if (currentLocation.altitude !== null) {
@@ -889,8 +940,8 @@
                 document.getElementById('altitude').textContent = '--';
             }
 
-            // Coordinates
-            document.getElementById('coordinates').textContent =
+            // Coordinates - inline in header
+            document.getElementById('coordinates-inline').textContent =
                 `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
 
             // Road info
@@ -900,6 +951,9 @@
                 document.getElementById('road-type').textContent =
                     `${roadInfo.type} • ${roadInfo.city}, ${roadInfo.state}`;
             }
+
+            // Update weather display (for dynamic sunrise/sunset transitions)
+            updateWeatherDisplay();
         }
 
         function updateExitsDisplay() {

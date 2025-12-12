@@ -198,56 +198,12 @@
             50% { opacity: 0.5; }
         }
 
-        /* Radar Toggle Button */
-        .radar-toggle {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 1000;
-            background: #2d2d2d;
-            border: 2px solid #4a4a4a;
-            border-radius: 8px;
-            padding: 8px 12px;
-            color: #e5e5e5;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .radar-toggle:hover {
-            background: #3a3a3a;
-            border-color: #f97316;
-        }
-
-        .radar-toggle.active {
-            background: #f97316;
-            border-color: #f97316;
-            color: white;
-        }
-
-        .radar-toggle .indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #666;
-        }
-
-        .radar-toggle.active .indicator {
-            background: white;
-            box-shadow: 0 0 8px rgba(255,255,255,0.8);
-        }
-
         /* Search Box */
         .search-box {
             position: absolute;
             top: 10px;
             left: 10px;
-            right: 80px;
+            right: 10px;
             z-index: 1000;
             background: #2d2d2d;
             border: 2px solid #4a4a4a;
@@ -266,6 +222,21 @@
         .search-box:disabled {
             background: #2d2d2d;
             color: #666;
+        }
+
+        /* Coordinates Display */
+        .map-coordinates {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(45, 45, 45, 0.7);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #888;
+            font-size: 10px;
+            font-family: monospace;
+            pointer-events: none;
         }
 
         /* Landscape Layout */
@@ -410,13 +381,10 @@
         <!-- Header -->
         <div class="header">
             <h1>🚗 Road Trip Telemetry</h1>
-            <div class="subtitle" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span class="status-indicator waiting" id="status-dot"></span>
-                    <span id="status-text">Initializing GPS...</span>
-                    <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
-                </div>
-                <div id="coordinates-inline" style="font-size: 11px; opacity: 0.7;">--</div>
+            <div class="subtitle" style="display: flex; align-items: center; gap: 8px;">
+                <span class="status-indicator waiting" id="status-dot"></span>
+                <span id="status-text">Initializing GPS...</span>
+                <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
             </div>
         </div>
 
@@ -536,10 +504,7 @@
                         placeholder="Navigation Coming Soon"
                         disabled
                     >
-                    <button class="radar-toggle" id="radar-toggle">
-                        <span class="indicator"></span>
-                        <span>Radar</span>
-                    </button>
+                    <div class="map-coordinates" id="map-coordinates">--</div>
                     <div id="map"></div>
                 </div>
             </div>
@@ -604,7 +569,6 @@
         let userMarker = null;
         let exitMarkers = [];
         let radarLayer = null;
-        let radarEnabled = true;
 
         let currentLocation = null;
         let previousLocation = null;
@@ -625,17 +589,8 @@
         function initApp() {
             initMap();
             initGPS();
-            initRadarToggle();
-            setInterval(updateDisplay, UPDATE_INTERVAL);
-        }
-
-        function initRadarToggle() {
-            const radarToggle = document.getElementById('radar-toggle');
-            radarToggle.addEventListener('click', toggleRadar);
-
-            // Start with radar enabled
-            radarToggle.classList.add('active');
             loadRadar();
+            setInterval(updateDisplay, UPDATE_INTERVAL);
         }
 
         function initMap() {
@@ -994,22 +949,6 @@
         }
 
         // ==================== RADAR OVERLAY ====================
-        async function toggleRadar() {
-            radarEnabled = !radarEnabled;
-            const radarToggle = document.getElementById('radar-toggle');
-
-            if (radarEnabled) {
-                radarToggle.classList.add('active');
-                await loadRadar();
-            } else {
-                radarToggle.classList.remove('active');
-                if (radarLayer) {
-                    map.removeLayer(radarLayer);
-                    radarLayer = null;
-                }
-            }
-        }
-
         async function loadRadar() {
             try {
                 // Fetch latest radar data from RainViewer API
@@ -1095,8 +1034,8 @@
                 document.getElementById('altitude').textContent = '--';
             }
 
-            // Coordinates - inline in header
-            document.getElementById('coordinates-inline').textContent =
+            // Coordinates - bottom left of map
+            document.getElementById('map-coordinates').textContent =
                 `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
 
             // Road info

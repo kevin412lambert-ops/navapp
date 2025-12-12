@@ -758,6 +758,36 @@
         }
 
         // ==================== NEARBY EXITS QUERY ====================
+        async function getRoadNameForExit(lat, lng) {
+            try {
+                const url = `https://nominatim.openstreetmap.org/reverse?` +
+                    `format=json&lat=${lat}&lon=${lng}&zoom=18`;
+
+                const response = await fetch(url, {
+                    headers: { 'User-Agent': 'Road Trip Telemetry' }
+                });
+
+                if (!response.ok) return null;
+
+                const data = await response.json();
+
+                // Look for the most relevant road name
+                const address = data.address || {};
+
+                // Priority: road > street > residential > highway
+                const roadName = address.road ||
+                                address.street ||
+                                address.residential ||
+                                address.highway ||
+                                address.motorway;
+
+                return roadName || null;
+            } catch (error) {
+                console.error('Geocoding failed for exit:', error);
+                return null;
+            }
+        }
+
         async function queryNearbyExits() {
             if (!currentLocation) return;
 
@@ -782,10 +812,7 @@
 
                 const data = await response.json();
 
-                // Log raw data for debugging
-                console.log('Raw exit data:', data.elements);
-
-                nearbyExits = data.elements
+                const exitNodes = data.elements
                     .filter(element => element.type === 'node' && element.tags)
                     .map(element => {
                         const distance = calculateDistance(
@@ -795,21 +822,43 @@
                             element.lon
                         );
 
-                        // Build exit name with multiple fallbacks
-                        let exitName = 'Exit';
+                        return {
+                            id: element.id,
+                            lat: element.lat,
+                            lng: element.lon,
+                            distance: distance,
+                            tags: element.tags,
+                            needsGeocode: !element.tags.ref && !element.tags.name && !element.tags.destination
+                        };
+                    });
 
-                        if (element.tags.ref) {
-                            exitName = `Exit ${element.tags.ref}`;
-                        } else if (element.tags.name) {
-                            exitName = element.tags.name;
-                        } else if (element.tags['noref'] === 'yes' || element.tags['unsigned_ref']) {
-                            exitName = `Exit ${element.tags.unsigned_ref || '(unsigned)'}`;
-                        } else if (element.tags.destination) {
-                            exitName = `Exit to ${element.tags.destination}`;
+                // Fetch street names for unnamed exits
+                const exitPromises = exitNodes.map(async (element) => {
+                    let exitName = 'Exit';
+                    let destination = null;
+
+                    // Build exit name with multiple fallbacks
+                    if (element.tags.ref) {
+                        exitName = `Exit ${element.tags.ref}`;
+                    } else if (element.tags.name) {
+                        exitName = element.tags.name;
+                    } else if (element.tags.destination) {
+                        exitName = `Exit to ${element.tags.destination}`;
+                        destination = element.tags.destination;
+                    } else if (element.needsGeocode) {
+                        // Fetch street name via reverse geocoding
+                        const streetName = await getRoadNameForExit(element.lat, element.lng);
+                        if (streetName) {
+                            exitName = `Exit towards ${streetName}`;
+                        } else {
+                            exitName = 'Exit (unsigned)';
                         }
+                    } else if (element.tags['noref'] === 'yes' || element.tags['unsigned_ref']) {
+                        exitName = `Exit ${element.tags.unsigned_ref || '(unsigned)'}`;
+                    }
 
-                        // Add destination info if available
-                        let destination = null;
+                    // Add destination info if available and not already set
+                    if (!destination) {
                         if (element.tags.destination) {
                             destination = element.tags.destination;
                         } else if (element.tags['destination:ref']) {
@@ -817,34 +866,26 @@
                         } else if (element.tags['destination:street']) {
                             destination = element.tags['destination:street'];
                         }
+                    }
 
-                        return {
-                            id: element.id,
-                            name: exitName,
-                            destination: destination,
-                            ref: element.tags.ref || null,
-                            lat: element.lat,
-                            lng: element.lon,
-                            distance: distance,
-                            tags: element.tags // Keep all tags for debugging
-                        };
-                    });
+                    return {
+                        id: element.id,
+                        name: exitName,
+                        destination: destination,
+                        ref: element.tags.ref || null,
+                        lat: element.lat,
+                        lng: element.lng,
+                        distance: element.distance,
+                        tags: element.tags
+                    };
+                });
+
+                nearbyExits = await Promise.all(exitPromises);
 
                 // Sort by distance
                 nearbyExits.sort((a, b) => a.distance - b.distance);
 
-                console.log('========== EXIT DEBUG ==========');
-                console.log('Total exits found:', nearbyExits.length);
-                nearbyExits.forEach((exit, index) => {
-                    console.log(`Exit ${index + 1}:`, {
-                        name: exit.name,
-                        ref: exit.ref,
-                        destination: exit.destination,
-                        distance: exit.distance.toFixed(2) + ' mi',
-                        allTags: exit.tags
-                    });
-                });
-                console.log('================================');
+                console.log('Nearby exits found:', nearbyExits.length);
                 updateExitsDisplay();
             } catch (error) {
                 console.error('Exit query failed:', error);

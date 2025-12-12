@@ -242,6 +242,32 @@
             box-shadow: 0 0 8px rgba(255,255,255,0.8);
         }
 
+        /* Search Box */
+        .search-box {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 80px;
+            z-index: 1000;
+            background: #2d2d2d;
+            border: 2px solid #4a4a4a;
+            border-radius: 8px;
+            padding: 10px 15px;
+            color: #666;
+            font-size: 14px;
+            cursor: not-allowed;
+        }
+
+        .search-box::placeholder {
+            color: #666;
+            opacity: 1;
+        }
+
+        .search-box:disabled {
+            background: #2d2d2d;
+            color: #666;
+        }
+
         /* Landscape Layout */
         @media (min-width: 768px) and (orientation: landscape) {
             .main-content {
@@ -503,6 +529,13 @@
             <!-- Right Panel: Map -->
             <div class="right-panel">
                 <div class="map-section">
+                    <input
+                        type="text"
+                        class="search-box"
+                        id="search-box"
+                        placeholder="Navigation Coming Soon"
+                        disabled
+                    >
                     <button class="radar-toggle" id="radar-toggle">
                         <span class="indicator"></span>
                         <span>Radar</span>

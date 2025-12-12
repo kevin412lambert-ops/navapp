@@ -769,6 +769,8 @@
                         node["highway"="motorway_junction"](around:800,${currentLocation.lat},${currentLocation.lng});
                     );
                     out body;
+                    >;
+                    out skel qt;
                 `;
 
                 const response = await fetch('https://overpass-api.de/api/interpreter', {
@@ -780,29 +782,69 @@
 
                 const data = await response.json();
 
-                nearbyExits = data.elements.map(element => {
-                    const distance = calculateDistance(
-                        currentLocation.lat,
-                        currentLocation.lng,
-                        element.lat,
-                        element.lon
-                    );
+                // Log raw data for debugging
+                console.log('Raw exit data:', data.elements);
 
-                    return {
-                        id: element.id,
-                        name: element.tags?.ref ? `Exit ${element.tags.ref}` :
-                              element.tags?.name || 'Exit',
-                        ref: element.tags?.ref || null,
-                        lat: element.lat,
-                        lng: element.lon,
-                        distance: distance
-                    };
-                });
+                nearbyExits = data.elements
+                    .filter(element => element.type === 'node' && element.tags)
+                    .map(element => {
+                        const distance = calculateDistance(
+                            currentLocation.lat,
+                            currentLocation.lng,
+                            element.lat,
+                            element.lon
+                        );
+
+                        // Build exit name with multiple fallbacks
+                        let exitName = 'Exit';
+
+                        if (element.tags.ref) {
+                            exitName = `Exit ${element.tags.ref}`;
+                        } else if (element.tags.name) {
+                            exitName = element.tags.name;
+                        } else if (element.tags['noref'] === 'yes' || element.tags['unsigned_ref']) {
+                            exitName = `Exit ${element.tags.unsigned_ref || '(unsigned)'}`;
+                        } else if (element.tags.destination) {
+                            exitName = `Exit to ${element.tags.destination}`;
+                        }
+
+                        // Add destination info if available
+                        let destination = null;
+                        if (element.tags.destination) {
+                            destination = element.tags.destination;
+                        } else if (element.tags['destination:ref']) {
+                            destination = element.tags['destination:ref'];
+                        } else if (element.tags['destination:street']) {
+                            destination = element.tags['destination:street'];
+                        }
+
+                        return {
+                            id: element.id,
+                            name: exitName,
+                            destination: destination,
+                            ref: element.tags.ref || null,
+                            lat: element.lat,
+                            lng: element.lon,
+                            distance: distance,
+                            tags: element.tags // Keep all tags for debugging
+                        };
+                    });
 
                 // Sort by distance
                 nearbyExits.sort((a, b) => a.distance - b.distance);
 
-                console.log('Nearby exits:', nearbyExits.length);
+                console.log('========== EXIT DEBUG ==========');
+                console.log('Total exits found:', nearbyExits.length);
+                nearbyExits.forEach((exit, index) => {
+                    console.log(`Exit ${index + 1}:`, {
+                        name: exit.name,
+                        ref: exit.ref,
+                        destination: exit.destination,
+                        distance: exit.distance.toFixed(2) + ' mi',
+                        allTags: exit.tags
+                    });
+                });
+                console.log('================================');
                 updateExitsDisplay();
             } catch (error) {
                 console.error('Exit query failed:', error);
@@ -1068,6 +1110,7 @@
                     <div class="exit-name">${exit.name}</div>
                     <div class="exit-meta">
                         <span>📍 ${exit.distance.toFixed(2)} mi</span>
+                        ${exit.destination ? `<span>→ ${exit.destination}</span>` : ''}
                     </div>
                 </div>
             `).join('');

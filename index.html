@@ -604,7 +604,7 @@
         let userMarker = null;
         let exitMarkers = [];
         let radarLayer = null;
-        let radarEnabled = false;
+        let radarEnabled = true;
 
         let currentLocation = null;
         let previousLocation = null;
@@ -632,13 +632,18 @@
         function initRadarToggle() {
             const radarToggle = document.getElementById('radar-toggle');
             radarToggle.addEventListener('click', toggleRadar);
+
+            // Start with radar enabled
+            radarToggle.classList.add('active');
+            loadRadar();
         }
 
         function initMap() {
             map = L.map('map', {
                 center: [37.7749, -122.4194],
                 zoom: 15,
-                zoomControl: true
+                zoomControl: false,
+                attributionControl: false
             });
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

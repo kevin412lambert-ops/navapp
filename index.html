@@ -109,6 +109,38 @@
             margin-top: 8px;
         }
 
+        /* Heading Arrow */
+        .heading-arrow {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            margin-left: 12px;
+            vertical-align: middle;
+            transition: transform 0.5s ease-out, opacity 0.3s ease;
+        }
+
+        .heading-arrow svg {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+
+        /* Wind Arrow */
+        .wind-arrow {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            margin-left: 12px;
+            vertical-align: middle;
+            transition: transform 0.5s ease-out, opacity 0.3s ease;
+        }
+
+        .wind-arrow svg {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+
         /* Map Section */
         .map-section {
             position: relative;
@@ -416,6 +448,12 @@
                         <div class="telemetry-value">
                             <span id="heading">--</span>
                             <span class="telemetry-unit">°</span>
+                            <span class="heading-arrow" id="heading-arrow">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2L12 22M12 2L6 8M12 2L18 8" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <circle cx="12" cy="12" r="1.5" fill="#f97316"/>
+                                </svg>
+                            </span>
                         </div>
                         <div class="telemetry-secondary" id="direction">--</div>
                     </div>
@@ -437,61 +475,6 @@
                         <div class="no-data">No exits nearby</div>
                     </div>
                 </div>
-
-                <!-- Weather Section -->
-                <div class="exits-section" style="margin-top: 15px;">
-                    <div class="exits-header">Current Weather</div>
-                    <div class="telemetry-grid" style="margin-top: 12px;">
-                        <!-- Temperature -->
-                        <div class="telemetry-card">
-                            <div class="telemetry-label">Temperature</div>
-                            <div class="telemetry-value">
-                                <span id="weather-temp">--</span>
-                                <span class="telemetry-unit">°F</span>
-                            </div>
-                        </div>
-
-                        <!-- Feels Like -->
-                        <div class="telemetry-card">
-                            <div class="telemetry-label">Feels Like</div>
-                            <div class="telemetry-value">
-                                <span id="weather-feels">--</span>
-                                <span class="telemetry-unit">°F</span>
-                            </div>
-                        </div>
-
-                        <!-- Humidity -->
-                        <div class="telemetry-card">
-                            <div class="telemetry-label">Humidity</div>
-                            <div class="telemetry-value">
-                                <span id="weather-humidity">--</span>
-                                <span class="telemetry-unit">%</span>
-                            </div>
-                        </div>
-
-                        <!-- Wind -->
-                        <div class="telemetry-card">
-                            <div class="telemetry-label">Wind</div>
-                            <div class="telemetry-value" style="font-size: 20px;">
-                                <span id="weather-wind">--</span>
-                                <span class="telemetry-unit">mph</span>
-                            </div>
-                            <div class="telemetry-secondary" id="weather-wind-dir">--</div>
-                        </div>
-
-                        <!-- Condition -->
-                        <div class="telemetry-card full-width">
-                            <div class="telemetry-label">Condition</div>
-                            <div class="telemetry-value" style="font-size: 20px;" id="weather-condition">Loading...</div>
-                        </div>
-
-                        <!-- Sunrise/Sunset -->
-                        <div class="telemetry-card full-width">
-                            <div class="telemetry-label" id="sun-label">--</div>
-                            <div class="telemetry-value" style="font-size: 20px;" id="sun-time">--</div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- Right Panel: Map -->
@@ -506,6 +489,67 @@
                     >
                     <div class="map-coordinates" id="map-coordinates">--</div>
                     <div id="map"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Weather Section (Bottom) -->
+        <div class="exits-section" style="margin-top: 15px;">
+            <div class="exits-header">Current Weather</div>
+            <div class="telemetry-grid" style="margin-top: 12px;">
+                <!-- Temperature -->
+                <div class="telemetry-card">
+                    <div class="telemetry-label">Temperature</div>
+                    <div class="telemetry-value">
+                        <span id="weather-temp">--</span>
+                        <span class="telemetry-unit">°F</span>
+                    </div>
+                </div>
+
+                <!-- Feels Like -->
+                <div class="telemetry-card">
+                    <div class="telemetry-label">Feels Like</div>
+                    <div class="telemetry-value">
+                        <span id="weather-feels">--</span>
+                        <span class="telemetry-unit">°F</span>
+                    </div>
+                </div>
+
+                <!-- Humidity -->
+                <div class="telemetry-card">
+                    <div class="telemetry-label">Humidity</div>
+                    <div class="telemetry-value">
+                        <span id="weather-humidity">--</span>
+                        <span class="telemetry-unit">%</span>
+                    </div>
+                </div>
+
+                <!-- Wind -->
+                <div class="telemetry-card">
+                    <div class="telemetry-label">Wind</div>
+                    <div class="telemetry-value" style="font-size: 20px;">
+                        <span id="weather-wind">--</span>
+                        <span class="telemetry-unit">mph</span>
+                        <span class="wind-arrow" id="wind-arrow">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 2L12 22M12 2L6 8M12 2L18 8" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <circle cx="12" cy="12" r="1.5" fill="#f97316"/>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="telemetry-secondary" id="weather-wind-dir">--</div>
+                </div>
+
+                <!-- Condition -->
+                <div class="telemetry-card full-width">
+                    <div class="telemetry-label">Condition</div>
+                    <div class="telemetry-value" style="font-size: 20px;" id="weather-condition">Loading...</div>
+                </div>
+
+                <!-- Sunrise/Sunset -->
+                <div class="telemetry-card full-width">
+                    <div class="telemetry-label" id="sun-label">--</div>
+                    <div class="telemetry-value" style="font-size: 20px;" id="sun-time">--</div>
                 </div>
             </div>
         </div>
@@ -575,6 +619,7 @@
         let roadInfo = null;
         let nearbyExits = [];
         let weatherData = null;
+        let markerAnimation = null; // Track ongoing marker animation
 
         const UPDATE_INTERVAL = 1000; // Update display every second
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
@@ -679,15 +724,68 @@
         }
 
         // ==================== MAP MARKER ====================
+        function animateMarker(startLat, startLng, endLat, endLng, duration) {
+            // Cancel any ongoing animation
+            if (markerAnimation) {
+                cancelAnimationFrame(markerAnimation);
+                markerAnimation = null;
+            }
+
+            const startTime = performance.now();
+
+            function animate(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+
+                // Ease-out cubic function for smooth deceleration
+                const easeProgress = 1 - Math.pow(1 - progress, 3);
+
+                // Interpolate between start and end positions
+                const lat = startLat + (endLat - startLat) * easeProgress;
+                const lng = startLng + (endLng - startLng) * easeProgress;
+
+                userMarker.setLatLng([lat, lng]);
+
+                if (progress < 1) {
+                    markerAnimation = requestAnimationFrame(animate);
+                } else {
+                    markerAnimation = null;
+                }
+            }
+
+            markerAnimation = requestAnimationFrame(animate);
+        }
+
         function updateMapMarker() {
             if (!currentLocation) return;
 
-            const latlng = [currentLocation.lat, currentLocation.lng];
+            const newLat = currentLocation.lat;
+            const newLng = currentLocation.lng;
 
             if (userMarker) {
-                userMarker.setLatLng(latlng);
+                // Get current marker position
+                const currentLatLng = userMarker.getLatLng();
+                const currentLat = currentLatLng.lat;
+                const currentLng = currentLatLng.lng;
+
+                // Calculate distance moved (in degrees, roughly)
+                const latDiff = Math.abs(newLat - currentLat);
+                const lngDiff = Math.abs(newLng - currentLng);
+                const totalDiff = latDiff + lngDiff;
+
+                // Only animate if the distance is significant (more than ~1 meter)
+                // and not too large (less than ~100 meters to avoid long animations)
+                if (totalDiff > 0.00001 && totalDiff < 0.001) {
+                    // Animate smoothly over 800ms
+                    animateMarker(currentLat, currentLng, newLat, newLng, 800);
+                } else if (totalDiff >= 0.001) {
+                    // Large jump (e.g., GPS correction) - use instant update
+                    userMarker.setLatLng([newLat, newLng]);
+                }
+                // If totalDiff is very small, do nothing (marker stays in place)
             } else {
-                userMarker = L.circleMarker(latlng, {
+                // First time: create marker without animation
+                userMarker = L.circleMarker([newLat, newLng], {
                     radius: 10,
                     fillColor: '#4285F4',
                     color: '#ffffff',
@@ -696,11 +794,11 @@
                     fillOpacity: 0.9
                 }).addTo(map);
 
-                map.setView(latlng, 15);
+                map.setView([newLat, newLng], 15);
             }
 
-            // Re-center map
-            map.panTo(latlng);
+            // Re-center map smoothly
+            map.panTo([newLat, newLng]);
         }
 
         // ==================== ROAD INFO QUERY ====================
@@ -980,6 +1078,15 @@
             document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
             document.getElementById('weather-condition').textContent = weatherData.condition;
 
+            // Rotate wind arrow to show wind direction
+            const windArrow = document.getElementById('wind-arrow');
+            if (weatherData.windDirection !== null && weatherData.windDirection !== undefined) {
+                windArrow.style.transform = `rotate(${weatherData.windDirection}deg)`;
+                windArrow.style.opacity = '1';
+            } else {
+                windArrow.style.opacity = '0.3';
+            }
+
             // Update sunrise/sunset
             if (weatherData.sunrise && weatherData.sunset) {
                 const now = new Date();
@@ -1100,9 +1207,18 @@
             if (heading !== null && heading !== undefined) {
                 document.getElementById('heading').textContent = heading.toFixed(0);
                 document.getElementById('direction').textContent = getCardinalDirection(heading);
+
+                // Rotate arrow to point in heading direction
+                const arrowElement = document.getElementById('heading-arrow');
+                arrowElement.style.transform = `rotate(${heading}deg)`;
+                arrowElement.style.opacity = '1';
             } else {
                 document.getElementById('heading').textContent = '--';
                 document.getElementById('direction').textContent = 'Stationary';
+
+                // Dim arrow when stationary
+                const arrowElement = document.getElementById('heading-arrow');
+                arrowElement.style.opacity = '0.3';
             }
 
             // Accuracy (convert meters to feet) - inline in header

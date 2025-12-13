@@ -271,6 +271,35 @@
             pointer-events: none;
         }
 
+        /* Range Slider */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #4a4a4a;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #f97316;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #f97316;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
         /* Landscape Layout */
         @media (min-width: 768px) and (orientation: landscape) {
             .main-content {
@@ -535,6 +564,19 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Radar Opacity Control -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Radar Opacity</div>
+                    <div style="padding: 12px;">
+                        <input type="range" id="radar-opacity-slider" min="0" max="100" value="60" style="width: 100%;">
+                        <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: #666;">
+                            <span>0%</span>
+                            <span id="radar-opacity-value">60%</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Panel: Map -->
@@ -635,6 +677,22 @@
             initGPS();
             loadRadar();
             setInterval(updateDisplay, UPDATE_INTERVAL);
+            initRadarOpacitySlider();
+        }
+
+        function initRadarOpacitySlider() {
+            const slider = document.getElementById('radar-opacity-slider');
+            const valueDisplay = document.getElementById('radar-opacity-value');
+
+            slider.addEventListener('input', (e) => {
+                const opacity = e.target.value / 100;
+                valueDisplay.textContent = `${e.target.value}%`;
+
+                // Update radar layer opacity if it exists
+                if (radarLayer) {
+                    radarLayer.setOpacity(opacity);
+                }
+            });
         }
 
         function initMap() {
@@ -1167,10 +1225,14 @@
                     map.removeLayer(radarLayer);
                 }
 
+                // Get current opacity from slider
+                const slider = document.getElementById('radar-opacity-slider');
+                const currentOpacity = slider ? slider.value / 100 : 0.6;
+
                 // Add new radar layer
                 radarLayer = L.tileLayer(tileUrl, {
                     tileSize: 256,
-                    opacity: 0.6,
+                    opacity: currentOpacity,
                     zIndex: 10,
                     attribution: 'Radar data © RainViewer'
                 }).addTo(map);

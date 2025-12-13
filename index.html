@@ -410,20 +410,19 @@
     </div>
 
     <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>🚗 Road Trip Telemetry</h1>
-            <div class="subtitle" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <span class="status-indicator waiting" id="status-dot"></span>
-                <span id="status-text">Initializing GPS...</span>
-                <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
-            </div>
-        </div>
-
         <!-- Main Content -->
         <div class="main-content">
             <!-- Left Panel: Telemetry -->
             <div class="left-panel">
+                <!-- GPS Status -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding: 8px 12px; background: rgba(45, 45, 45, 0.5); border-radius: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="status-indicator waiting" id="status-dot"></span>
+                        <span id="status-text" style="font-size: 13px;">Initializing GPS...</span>
+                    </div>
+                    <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
+                </div>
+
                 <!-- Current Road/Highway -->
                 <div class="telemetry-card full-width" style="margin-bottom: 12px;">
                     <div class="telemetry-label">Current Road</div>

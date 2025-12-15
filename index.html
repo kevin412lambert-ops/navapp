@@ -775,21 +775,21 @@
             updateStatus('GPS Active', 'active');
 
             // Query road info periodically
-            const now = Date.now();
-            if (now - lastRoadQuery > ROAD_QUERY_INTERVAL) {
-                lastRoadQuery = now;
+            const currentTime = Date.now();
+            if (currentTime - lastRoadQuery > ROAD_QUERY_INTERVAL) {
+                lastRoadQuery = currentTime;
                 queryRoadInfo();
             }
 
             // Query nearby exits periodically
-            if (now - lastExitQuery > EXIT_QUERY_INTERVAL) {
-                lastExitQuery = now;
+            if (currentTime - lastExitQuery > EXIT_QUERY_INTERVAL) {
+                lastExitQuery = currentTime;
                 queryNearbyExits();
             }
 
             // Query weather periodically
-            if (now - lastWeatherQuery > WEATHER_QUERY_INTERVAL) {
-                lastWeatherQuery = now;
+            if (currentTime - lastWeatherQuery > WEATHER_QUERY_INTERVAL) {
+                lastWeatherQuery = currentTime;
                 queryWeather();
             }
         }

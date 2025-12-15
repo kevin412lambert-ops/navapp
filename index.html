@@ -548,7 +548,9 @@
                                     </svg>
                                 </span>
                             </div>
-                            <div class="telemetry-secondary" id="weather-wind-dir">--</div>
+                            <div class="telemetry-secondary">
+                                <span id="weather-wind-gust">--</span> • <span id="weather-wind-dir">--</span>
+                            </div>
                         </div>
 
                         <!-- Condition -->
@@ -661,6 +663,10 @@
         let nearbyExits = [];
         let weatherData = null;
         let markerAnimation = null; // Track ongoing marker animation
+        let lastGPSUpdateTime = null; // Track when GPS updates arrive
+        let gpsUpdateIntervals = []; // Rolling average of update intervals
+        let currentVelocity = { lat: 0, lng: 0 }; // Velocity in degrees/ms
+        let isExtrapolating = false; // Whether we're extrapolating beyond GPS data
 
         const UPDATE_INTERVAL = 1000; // Update display every second
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
@@ -731,6 +737,19 @@
         // ==================== LOCATION UPDATES ====================
         function handleLocationUpdate(position) {
             const coords = position.coords;
+            const now = performance.now();
+
+            // Track GPS update intervals for adaptive animation
+            if (lastGPSUpdateTime) {
+                const interval = now - lastGPSUpdateTime;
+                gpsUpdateIntervals.push(interval);
+
+                // Keep rolling window of last 5 intervals
+                if (gpsUpdateIntervals.length > 5) {
+                    gpsUpdateIntervals.shift();
+                }
+            }
+            lastGPSUpdateTime = now;
 
             // Save previous location
             if (currentLocation) {
@@ -780,33 +799,65 @@
             updateStatus('GPS Error', 'error');
         }
 
+        function getAverageGPSInterval() {
+            if (gpsUpdateIntervals.length === 0) return 1000; // Default 1 second
+            const sum = gpsUpdateIntervals.reduce((a, b) => a + b, 0);
+            return sum / gpsUpdateIntervals.length;
+        }
+
         // ==================== MAP MARKER ====================
-        function animateMarker(startLat, startLng, endLat, endLng, duration) {
+        function animateMarker(startLat, startLng, endLat, endLng, options = {}) {
             // Cancel any ongoing animation
             if (markerAnimation) {
                 cancelAnimationFrame(markerAnimation);
                 markerAnimation = null;
             }
 
+            // Calculate velocity (degrees per millisecond)
+            const avgInterval = getAverageGPSInterval();
+            const duration = options.duration || (avgInterval * 0.95); // Use 95% of GPS interval
+
+            currentVelocity.lat = (endLat - startLat) / duration;
+            currentVelocity.lng = (endLng - startLng) / duration;
+
             const startTime = performance.now();
+            const shouldExtrapolate = options.extrapolate !== false;
+            isExtrapolating = false;
 
             function animate(currentTime) {
                 const elapsed = currentTime - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-
-                // Ease-out cubic function for smooth deceleration
-                const easeProgress = 1 - Math.pow(1 - progress, 3);
-
-                // Interpolate between start and end positions
-                const lat = startLat + (endLat - startLat) * easeProgress;
-                const lng = startLng + (endLng - startLng) * easeProgress;
-
-                userMarker.setLatLng([lat, lng]);
+                const progress = elapsed / duration;
 
                 if (progress < 1) {
+                    // Normal animation phase (0% to 100%)
+                    const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+
+                    const lat = startLat + (endLat - startLat) * easeProgress;
+                    const lng = startLng + (endLng - startLng) * easeProgress;
+
+                    userMarker.setLatLng([lat, lng]);
                     markerAnimation = requestAnimationFrame(animate);
+                } else if (shouldExtrapolate && currentLocation.speed > 0.5) {
+                    // Extrapolation phase (beyond 100% - keep moving at constant velocity)
+                    isExtrapolating = true;
+                    const extraTime = elapsed - duration;
+
+                    // Continue moving at constant velocity
+                    const lat = endLat + (currentVelocity.lat * extraTime);
+                    const lng = endLng + (currentVelocity.lng * extraTime);
+
+                    userMarker.setLatLng([lat, lng]);
+                    markerAnimation = requestAnimationFrame(animate);
+
+                    // Safety limit: stop extrapolating after 2x the GPS interval
+                    if (extraTime > avgInterval) {
+                        markerAnimation = null;
+                        isExtrapolating = false;
+                    }
                 } else {
+                    // Animation complete, device stationary or extrapolation disabled
                     markerAnimation = null;
+                    isExtrapolating = false;
                 }
             }
 
@@ -820,26 +871,37 @@
             const newLng = currentLocation.lng;
 
             if (userMarker) {
-                // Get current marker position
+                // Get current marker position (may be extrapolated beyond last GPS point)
                 const currentLatLng = userMarker.getLatLng();
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
-                // Calculate distance moved (in degrees, roughly)
+                // Calculate distance moved
                 const latDiff = Math.abs(newLat - currentLat);
                 const lngDiff = Math.abs(newLng - currentLng);
                 const totalDiff = latDiff + lngDiff;
 
-                // Only animate if the distance is significant (more than ~1 meter)
-                // and not too large (less than ~100 meters to avoid long animations)
-                if (totalDiff > 0.00001 && totalDiff < 0.001) {
-                    // Animate smoothly over 800ms
-                    animateMarker(currentLat, currentLng, newLat, newLng, 800);
+                // Decision logic
+                if (totalDiff < 0.00001) {
+                    // Tiny movement (<1m) - ignore to prevent jitter
+                    return;
                 } else if (totalDiff >= 0.001) {
-                    // Large jump (e.g., GPS correction) - use instant update
+                    // Large jump (>100m) - instant update (GPS correction or tunnel exit)
+                    if (markerAnimation) {
+                        cancelAnimationFrame(markerAnimation);
+                        markerAnimation = null;
+                    }
                     userMarker.setLatLng([newLat, newLng]);
+                    isExtrapolating = false;
+                } else {
+                    // Normal movement (1m-100m) - smooth animation with adaptive duration
+                    const speed = currentLocation.speed || 0; // m/s
+                    const isMoving = speed > 0.5; // Moving if >0.5 m/s (~1 mph)
+
+                    animateMarker(currentLat, currentLng, newLat, newLng, {
+                        extrapolate: isMoving // Only extrapolate if actually moving
+                    });
                 }
-                // If totalDiff is very small, do nothing (marker stays in place)
             } else {
                 // First time: create marker without animation
                 userMarker = L.circleMarker([newLat, newLng], {
@@ -1056,7 +1118,7 @@
                 const url = `https://api.open-meteo.com/v1/forecast?` +
                     `latitude=${currentLocation.lat}&` +
                     `longitude=${currentLocation.lng}&` +
-                    `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m&` +
+                    `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&` +
                     `daily=sunrise,sunset&` +
                     `timezone=auto&` +
                     `temperature_unit=fahrenheit&` +
@@ -1074,6 +1136,7 @@
                     feelsLike: current.apparent_temperature,
                     humidity: current.relative_humidity_2m,
                     windSpeed: current.wind_speed_10m,
+                    windGust: current.wind_gusts_10m,
                     windDirection: current.wind_direction_10m,
                     condition: getWeatherCondition(current.weather_code),
                     sunrise: daily.sunrise[0],  // Today's sunrise (ISO 8601 format)
@@ -1132,6 +1195,14 @@
             document.getElementById('weather-feels').textContent = weatherData.feelsLike.toFixed(0);
             document.getElementById('weather-humidity').textContent = weatherData.humidity;
             document.getElementById('weather-wind').textContent = weatherData.windSpeed.toFixed(0);
+
+            // Display wind gust
+            if (weatherData.windGust !== null && weatherData.windGust !== undefined) {
+                document.getElementById('weather-wind-gust').textContent = `Gusts ${weatherData.windGust.toFixed(0)} mph`;
+            } else {
+                document.getElementById('weather-wind-gust').textContent = 'No gusts';
+            }
+
             document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
             document.getElementById('weather-condition').textContent = weatherData.condition;
 

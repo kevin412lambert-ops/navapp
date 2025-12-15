@@ -925,7 +925,7 @@
             if (!currentLocation) return;
 
             try {
-                // Use Nominatim reverse geocoding
+                // Use Nominatim reverse geocoding (zoom 18 for detailed road info)
                 const url = `https://nominatim.openstreetmap.org/reverse?` +
                     `format=json&lat=${currentLocation.lat}&lon=${currentLocation.lng}&zoom=18`;
 
@@ -937,11 +937,40 @@
 
                 const data = await response.json();
 
+                // Extract city from detailed query
+                let city = data.address?.city || data.address?.town || data.address?.village || 'Unknown';
+
+                // If city is Unknown, try broader zoom to find nearest city
+                if (city === 'Unknown') {
+                    try {
+                        const broadUrl = `https://nominatim.openstreetmap.org/reverse?` +
+                            `format=json&lat=${currentLocation.lat}&lon=${currentLocation.lng}&zoom=10`;
+
+                        const broadResponse = await fetch(broadUrl, {
+                            headers: { 'User-Agent': 'Road Trip Telemetry' }
+                        });
+
+                        if (broadResponse.ok) {
+                            const broadData = await broadResponse.json();
+                            const nearestCity = broadData.address?.city ||
+                                               broadData.address?.town ||
+                                               broadData.address?.village ||
+                                               broadData.address?.county;
+
+                            if (nearestCity) {
+                                city = `Near ${nearestCity}`;
+                            }
+                        }
+                    } catch (broadError) {
+                        console.log('Broad city query failed, keeping Unknown');
+                    }
+                }
+
                 roadInfo = {
                     road: data.address?.road || 'Unknown',
                     highway: data.address?.highway || data.address?.motorway || null,
                     houseNumber: data.address?.house_number || null,
-                    city: data.address?.city || data.address?.town || data.address?.village || 'Unknown',
+                    city: city,
                     state: data.address?.state || '',
                     type: determineRoadType(data)
                 };
@@ -1198,7 +1227,7 @@
 
             // Display wind gust
             if (weatherData.windGust !== null && weatherData.windGust !== undefined) {
-                document.getElementById('weather-wind-gust').textContent = `Gusts ${weatherData.windGust.toFixed(0)} mph`;
+                document.getElementById('weather-wind-gust').innerHTML = `Gusts <span style="color: #f97316;">${weatherData.windGust.toFixed(0)}</span> mph`;
             } else {
                 document.getElementById('weather-wind-gust').textContent = 'No gusts';
             }
@@ -1371,7 +1400,18 @@
 
             // Road info
             if (roadInfo) {
-                const roadName = roadInfo.highway || roadInfo.road;
+                // Combine highway and road name when both exist
+                let roadName;
+                if (roadInfo.highway && roadInfo.road) {
+                    roadName = `${roadInfo.highway} (${roadInfo.road})`;
+                } else if (roadInfo.highway) {
+                    roadName = roadInfo.highway;
+                } else if (roadInfo.road) {
+                    roadName = roadInfo.road;
+                } else {
+                    roadName = 'Unknown';
+                }
+
                 document.getElementById('road-name').textContent = roadName;
                 document.getElementById('road-type').textContent =
                     `${roadInfo.type} • ${roadInfo.city}, ${roadInfo.state}`;

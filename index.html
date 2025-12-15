@@ -1127,6 +1127,12 @@
                         }
                     }
 
+                    // Determine if this is an exit (off-ramp) or entrance (on-ramp)
+                    // Exits typically have destination tags, entrances don't
+                    const isExit = !!(element.tags.destination ||
+                                      element.tags['destination:ref'] ||
+                                      element.tags['destination:street']);
+
                     return {
                         id: element.id,
                         name: exitName,
@@ -1135,7 +1141,8 @@
                         lat: element.lat,
                         lng: element.lng,
                         distance: element.distance,
-                        tags: element.tags
+                        tags: element.tags,
+                        type: isExit ? 'exit' : 'entrance'  // NEW: Add type classification
                     };
                 });
 
@@ -1446,32 +1453,62 @@
                 return;
             }
 
+            // Separate exits from entrances
+            const exits = nearbyExits.filter(e => e.type === 'exit');
+            const entrances = nearbyExits.filter(e => e.type === 'entrance');
+
             // Display exits
-            exitsList.innerHTML = nearbyExits.map(exit => `
-                <div class="exit-item">
-                    <div class="exit-name">${exit.name}</div>
-                    <div class="exit-meta">
-                        <span>📍 ${exit.distance.toFixed(2)} mi</span>
-                        ${exit.destination ? `<span>→ ${exit.destination}</span>` : ''}
+            let html = '';
+
+            if (exits.length > 0) {
+                html += '<div style="margin-bottom: 8px; font-size: 11px; color: #f97316; font-weight: 600;">EXITS</div>';
+                html += exits.map(exit => `
+                    <div class="exit-item">
+                        <div class="exit-name" style="color: #f97316;">🔴 ${exit.name}</div>
+                        <div class="exit-meta">
+                            <span>📍 ${exit.distance.toFixed(2)} mi</span>
+                            ${exit.destination ? `<span>→ ${exit.destination}</span>` : ''}
+                        </div>
                     </div>
-                </div>
-            `).join('');
+                `).join('');
+            }
+
+            if (entrances.length > 0) {
+                if (exits.length > 0) html += '<div style="margin: 12px 0; border-top: 1px solid #3a3a3a;"></div>';
+                html += '<div style="margin-bottom: 8px; font-size: 11px; color: #10b981; font-weight: 600;">ENTRANCES</div>';
+                html += entrances.map(entrance => `
+                    <div class="exit-item">
+                        <div class="exit-name" style="color: #10b981;">🟢 ${entrance.name}</div>
+                        <div class="exit-meta">
+                            <span>📍 ${entrance.distance.toFixed(2)} mi</span>
+                            ${entrance.destination ? `<span>→ ${entrance.destination}</span>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            exitsList.innerHTML = html;
 
             // Update map markers
             exitMarkers.forEach(marker => map.removeLayer(marker));
             exitMarkers = [];
 
             nearbyExits.slice(0, 5).forEach(exit => {
+                // Different colors for exits vs entrances
+                const isExit = exit.type === 'exit';
+                const color = isExit ? '#f97316' : '#10b981';  // Orange for exits, green for entrances
+                const label = isExit ? 'Exit' : 'Entrance';
+
                 const marker = L.circleMarker([exit.lat, exit.lng], {
                     radius: 6,
-                    fillColor: '#f97316',
+                    fillColor: color,
                     color: '#ffffff',
                     weight: 2,
                     opacity: 1,
                     fillOpacity: 0.9
                 }).addTo(map);
 
-                marker.bindPopup(`<strong>${exit.name}</strong><br>${exit.distance.toFixed(2)} mi`);
+                marker.bindPopup(`<strong>${label}: ${exit.name}</strong><br>${exit.distance.toFixed(2)} mi`);
                 exitMarkers.push(marker);
             });
         }

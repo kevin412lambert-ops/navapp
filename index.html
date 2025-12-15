@@ -275,29 +275,42 @@
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
-            height: 6px;
+            height: 8px;
             background: #4a4a4a;
-            border-radius: 3px;
+            border-radius: 4px;
             outline: none;
+            padding: 8px 0;
         }
 
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
-            width: 18px;
-            height: 18px;
+            width: 32px;
+            height: 32px;
             background: #f97316;
             border-radius: 50%;
             cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.1);
+            box-shadow: 0 0 0 8px rgba(249, 115, 22, 0.15);
         }
 
         input[type="range"]::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
+            width: 32px;
+            height: 32px;
             background: #f97316;
             border-radius: 50%;
             cursor: pointer;
             border: none;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        input[type="range"]::-moz-range-thumb:active {
+            transform: scale(1.1);
+            box-shadow: 0 0 0 8px rgba(249, 115, 22, 0.15);
         }
 
         /* Landscape Layout */

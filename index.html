@@ -481,6 +481,7 @@
                             <span id="speed">--</span>
                             <span class="telemetry-unit">mph</span>
                         </div>
+                        <div class="telemetry-secondary" id="speed-limit">--</div>
                     </div>
 
                     <!-- Heading -->
@@ -685,10 +686,12 @@
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
         const EXIT_QUERY_INTERVAL = 10000; // Query exits every 10 seconds
         const WEATHER_QUERY_INTERVAL = 300000; // Query weather every 5 minutes
+        const SPEED_LIMIT_QUERY_INTERVAL = 10000; // Query speed limit every 10 seconds
 
         let lastRoadQuery = 0;
         let lastExitQuery = 0;
         let lastWeatherQuery = 0;
+        let lastSpeedLimitQuery = 0;
 
         // ==================== INIT ====================
         function initApp() {
@@ -804,6 +807,12 @@
             if (currentTime - lastWeatherQuery > WEATHER_QUERY_INTERVAL) {
                 lastWeatherQuery = currentTime;
                 queryWeather();
+            }
+
+            // Query speed limit periodically
+            if (currentTime - lastSpeedLimitQuery > SPEED_LIMIT_QUERY_INTERVAL) {
+                lastSpeedLimitQuery = currentTime;
+                querySpeedLimit();
             }
         }
 
@@ -1014,6 +1023,83 @@
             }
 
             return 'Unknown';
+        }
+
+        // ==================== SPEED LIMIT QUERY ====================
+        async function querySpeedLimit() {
+            if (!currentLocation) return;
+
+            try {
+                // Query Overpass for nearby ways with maxspeed within 50m
+                const query = `
+                    [out:json][timeout:5];
+                    way(around:50,${currentLocation.lat},${currentLocation.lng})["highway"]["maxspeed"];
+                    out tags;
+                `;
+
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: query
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                if (data.elements && data.elements.length > 0) {
+                    // Get the first way with maxspeed
+                    const way = data.elements[0];
+                    let speedLimit = way.tags.maxspeed;
+
+                    if (speedLimit) {
+                        // Parse speed limit value
+                        // Could be "55 mph", "100", "50 knots", etc.
+                        speedLimit = parseSpeedLimit(speedLimit);
+
+                        // Update roadInfo with speed limit
+                        if (roadInfo) {
+                            roadInfo.speedLimit = speedLimit;
+                        } else {
+                            roadInfo = { speedLimit: speedLimit };
+                        }
+
+                        console.log('Speed limit found:', speedLimit);
+                    }
+                } else {
+                    // No speed limit data found
+                    if (roadInfo) {
+                        roadInfo.speedLimit = null;
+                    }
+                }
+            } catch (error) {
+                console.error('Speed limit query failed:', error);
+            }
+        }
+
+        function parseSpeedLimit(maxspeedValue) {
+            // Parse maxspeed tag value into mph
+            // Examples: "55 mph", "100" (km/h), "50 knots"
+
+            const value = maxspeedValue.trim();
+
+            // Check for mph
+            if (value.includes('mph')) {
+                return parseInt(value);
+            }
+
+            // Check for knots
+            if (value.includes('knots')) {
+                const knots = parseInt(value);
+                return Math.round(knots * 1.15078); // Convert knots to mph
+            }
+
+            // Default is km/h - convert to mph
+            const kmh = parseInt(value);
+            if (!isNaN(kmh)) {
+                return Math.round(kmh * 0.621371);
+            }
+
+            return null;
         }
 
         // ==================== NEARBY EXITS QUERY ====================
@@ -1371,6 +1457,24 @@
             const speedMph = currentLocation.speed !== null ?
                 (currentLocation.speed * 2.237).toFixed(0) : '--';
             document.getElementById('speed').textContent = speedMph;
+
+            // Speed limit
+            if (roadInfo && roadInfo.speedLimit) {
+                const speedElement = document.getElementById('speed-limit');
+                const currentSpeed = currentLocation.speed !== null ?
+                    (currentLocation.speed * 2.237) : 0;
+
+                // Color code based on current speed vs limit
+                if (currentSpeed > roadInfo.speedLimit + 5) {
+                    // Over speed limit by 5+ mph - orange warning
+                    speedElement.innerHTML = `Limit <span style="color: #f97316;">${roadInfo.speedLimit}</span> mph`;
+                } else {
+                    // Within speed limit - normal gray
+                    speedElement.textContent = `Limit ${roadInfo.speedLimit} mph`;
+                }
+            } else {
+                document.getElementById('speed-limit').textContent = '--';
+            }
 
             // Heading
             let heading = currentLocation.heading;

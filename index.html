@@ -685,6 +685,14 @@
         let currentVelocity = { lat: 0, lng: 0 }; // Velocity in degrees/ms
         let isExtrapolating = false; // Whether we're extrapolating beyond GPS data
 
+        // Speed limit caching
+        let speedLimitCache = {
+            value: null,        // Cached speed limit in mph
+            road: null,         // Road name when cached (e.g., "I25")
+            direction: null,    // Direction of travel (N, S, E, W, NE, etc.)
+            isCached: false     // Whether current display is from cache
+        };
+
         const UPDATE_INTERVAL = 1000; // Update display every second
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
         const EXIT_QUERY_INTERVAL = 10000; // Query exits every 10 seconds
@@ -864,6 +872,7 @@
                     markerAnimation = requestAnimationFrame(animate);
                 } else if (shouldExtrapolate && currentLocation.speed > 0.5) {
                     // Extrapolation phase (beyond 100% - keep moving at constant velocity)
+                    // Continues indefinitely until new GPS update arrives
                     isExtrapolating = true;
                     const extraTime = elapsed - duration;
 
@@ -873,12 +882,6 @@
 
                     userMarker.setLatLng([lat, lng]);
                     markerAnimation = requestAnimationFrame(animate);
-
-                    // Safety limit: stop extrapolating after 2x the GPS interval
-                    if (extraTime > avgInterval) {
-                        markerAnimation = null;
-                        isExtrapolating = false;
-                    }
                 } else {
                     // Animation complete, device stationary or extrapolation disabled
                     markerAnimation = null;
@@ -952,7 +955,7 @@
             try {
                 // Use Nominatim reverse geocoding (zoom 18 for detailed road info)
                 const url = `https://nominatim.openstreetmap.org/reverse?` +
-                    `format=json&lat=${currentLocation.lat}&lon=${currentLocation.lng}&zoom=18`;
+                    `format=json&lat=${currentLocation.lat}&lon=${currentLocation.lng}&zoom=18&addressdetails=1`;
 
                 const response = await fetch(url, {
                     headers: { 'User-Agent': 'Road Trip Telemetry' }
@@ -991,8 +994,12 @@
                     }
                 }
 
+                const motorway = data.address?.motorway || data.address?.trunk || data.address?.primary;
+                const roadName = data.address?.road;
+
                 roadInfo = {
-                    road: data.address?.road || 'Unknown',
+                    road: motorway || roadName || 'Unknown',
+                    roadName: roadName || null,  // Keep separate road name for combining
                     highway: data.address?.highway || data.address?.motorway || null,
                     houseNumber: data.address?.house_number || null,
                     city: city,
@@ -1009,10 +1016,22 @@
         function determineRoadType(data) {
             const address = data.address || {};
 
-            if (address.motorway || address.highway) {
+            // Check motorway field first (most reliable for interstates/highways)
+            if (address.motorway) {
+                const motorway = address.motorway.toLowerCase();
+                if (motorway.includes('interstate')) {
+                    return 'Interstate';
+                } else {
+                    return 'Highway';
+                }
+            }
+
+            // Check trunk roads (major highways)
+            if (address.trunk) {
                 return 'Highway';
             }
 
+            // Fall back to road name string matching
             const road = (address.road || '').toLowerCase();
 
             if (road.includes('interstate') || road.includes('i-')) {
@@ -1026,6 +1045,28 @@
             }
 
             return 'Unknown';
+        }
+
+        function formatHighwayName(name) {
+            if (!name) return name;
+
+            // Convert "Interstate 25" → "I25"
+            // Convert "Interstate 35 E" → "I35E"
+            let formatted = name.replace(/Interstate\s+(\d+)\s*([NESW])?/i, 'I$1$2');
+
+            // Convert "US Highway 287" → "US287"
+            formatted = formatted.replace(/US\s+Highway\s+(\d+)/i, 'US$1');
+
+            return formatted;
+        }
+
+        function getCardinalDirection(heading) {
+            if (heading === null || heading === undefined) return null;
+
+            // Convert heading to cardinal direction (8 directions)
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(heading / 45) % 8;
+            return directions[index];
         }
 
         // ==================== SPEED LIMIT QUERY ====================
@@ -1056,8 +1097,20 @@
 
                     if (speedLimit) {
                         // Parse speed limit value
-                        // Could be "55 mph", "100", "50 knots", etc.
                         speedLimit = parseSpeedLimit(speedLimit);
+
+                        // Update cache with new data
+                        if (roadInfo && roadInfo.road) {
+                            const roadKey = formatHighwayName(roadInfo.road); // Use formatted name
+                            const direction = getCardinalDirection(currentLocation.heading);
+
+                            speedLimitCache = {
+                                value: speedLimit,
+                                road: roadKey,
+                                direction: direction,
+                                isCached: false  // Fresh data, not cached
+                            };
+                        }
 
                         // Update roadInfo with speed limit
                         if (roadInfo) {
@@ -1067,15 +1120,43 @@
                         }
 
                         console.log('Speed limit found:', speedLimit);
-                    }
-                } else {
-                    // No speed limit data found
-                    if (roadInfo) {
-                        roadInfo.speedLimit = null;
+                        return;
                     }
                 }
+
+                // No speed limit found - check if we should use cached value
+                if (speedLimitCache.value && roadInfo && roadInfo.road) {
+                    const currentRoadKey = formatHighwayName(roadInfo.road);
+                    const currentDirection = getCardinalDirection(currentLocation.heading);
+
+                    // Use cached value if we're on the same road going the same direction
+                    if (speedLimitCache.road === currentRoadKey &&
+                        speedLimitCache.direction === currentDirection) {
+                        roadInfo.speedLimit = speedLimitCache.value;
+                        speedLimitCache.isCached = true;  // Mark as cached
+                        console.log('Using cached speed limit:', speedLimitCache.value, 'for', currentRoadKey, currentDirection);
+                        return;
+                    }
+                }
+
+                // Different road or no cache - clear speed limit
+                if (roadInfo) {
+                    roadInfo.speedLimit = null;
+                }
+                speedLimitCache.isCached = false;
+
             } catch (error) {
                 console.error('Speed limit query failed:', error);
+
+                // On error, try to use cached value if available and on same road
+                if (speedLimitCache.value && roadInfo && roadInfo.road) {
+                    const currentRoadKey = formatHighwayName(roadInfo.road);
+                    if (speedLimitCache.road === currentRoadKey) {
+                        roadInfo.speedLimit = speedLimitCache.value;
+                        speedLimitCache.isCached = true;
+                        console.log('Using cached speed limit (error fallback):', speedLimitCache.value);
+                    }
+                }
             }
         }
 
@@ -1467,13 +1548,17 @@
                 const currentSpeed = currentLocation.speed !== null ?
                     (currentLocation.speed * 2.237) : 0;
 
+                // Add visual indicator if showing cached data
+                const cachedIndicator = speedLimitCache.isCached ?
+                    ' <span style="opacity: 0.6; font-size: 0.85em;">(cached)</span>' : '';
+
                 // Color code based on current speed vs limit
                 if (currentSpeed > roadInfo.speedLimit + 5) {
                     // Over speed limit by 5+ mph - orange warning
-                    speedElement.innerHTML = `Limit <span style="color: #f97316;">${roadInfo.speedLimit}</span> mph`;
+                    speedElement.innerHTML = `Limit <span style="color: #f97316;">${roadInfo.speedLimit}</span> mph${cachedIndicator}`;
                 } else {
                     // Within speed limit - normal gray
-                    speedElement.textContent = `Limit ${roadInfo.speedLimit} mph`;
+                    speedElement.innerHTML = `Limit ${roadInfo.speedLimit} mph${cachedIndicator}`;
                 }
             } else {
                 document.getElementById('speed-limit').textContent = '--';
@@ -1527,14 +1612,27 @@
 
             // Road info
             if (roadInfo) {
-                // Combine highway and road name when both exist
+                // Combine highway/motorway with street name when both exist
                 let roadName;
-                if (roadInfo.highway && roadInfo.road) {
-                    roadName = `${roadInfo.highway} (${roadInfo.road})`;
+
+                // Check if we have both a motorway/highway AND a separate street name
+                const hasHighway = roadInfo.road && (roadInfo.road.includes('Interstate') ||
+                                                     roadInfo.road.includes('Highway') ||
+                                                     roadInfo.road.startsWith('I-') ||
+                                                     roadInfo.road.startsWith('US-'));
+
+                if (hasHighway && roadInfo.roadName && roadInfo.road !== roadInfo.roadName) {
+                    // Format and combine: "I25 (Ronald Reagan Highway)"
+                    const formattedHighway = formatHighwayName(roadInfo.road);
+                    roadName = `${formattedHighway} (${roadInfo.roadName})`;
+                } else if (roadInfo.highway && roadInfo.road) {
+                    // Legacy format with formatting
+                    const formattedHighway = formatHighwayName(roadInfo.highway);
+                    roadName = `${formattedHighway} (${roadInfo.road})`;
                 } else if (roadInfo.highway) {
-                    roadName = roadInfo.highway;
+                    roadName = formatHighwayName(roadInfo.highway);
                 } else if (roadInfo.road) {
-                    roadName = roadInfo.road;
+                    roadName = formatHighwayName(roadInfo.road);
                 } else {
                     roadName = 'Unknown';
                 }

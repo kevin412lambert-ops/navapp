@@ -617,6 +617,19 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Map Style Selector -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Map Style</div>
+                    <div style="padding: 12px;">
+                        <select id="map-style-selector" style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                            <option value="voyager">CARTO Voyager (Default)</option>
+                            <option value="dark">CARTO Dark Matter</option>
+                            <option value="satellite">Esri Satellite</option>
+                            <option value="osm">OpenStreetMap Classic</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Panel: Map -->
@@ -743,6 +756,7 @@
             setInterval(updateDisplay, UPDATE_INTERVAL);
             initRadarOpacitySlider();
             initMapZoomSlider();
+            initMapStyleSelector();
         }
 
         function initRadarOpacitySlider() {
@@ -837,6 +851,61 @@
             }
         }
 
+        function initMapStyleSelector() {
+            const selector = document.getElementById('map-style-selector');
+
+            // Load saved style preference
+            const savedStyle = localStorage.getItem('map_style') || 'voyager';
+            selector.value = savedStyle;
+
+            // Handle style change
+            selector.addEventListener('change', (e) => {
+                const newStyle = e.target.value;
+
+                // Save preference
+                localStorage.setItem('map_style', newStyle);
+
+                // Get new style configuration
+                const styleConfig = mapStyles[newStyle];
+
+                // Remove old base layer
+                if (baseLayer && map) {
+                    map.removeLayer(baseLayer);
+                }
+
+                // Add new base layer
+                baseLayer = L.tileLayer(styleConfig.url, {
+                    attribution: styleConfig.attribution,
+                    maxZoom: 19
+                }).addTo(map);
+
+                console.log(`Map style changed to: ${newStyle}`);
+            });
+        }
+
+        // Store base tile layer globally so we can swap it
+        let baseLayer = null;
+
+        // Map style configurations
+        const mapStyles = {
+            voyager: {
+                url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                attribution: '© OpenStreetMap © CARTO'
+            },
+            dark: {
+                url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                attribution: '© OpenStreetMap © CARTO'
+            },
+            satellite: {
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attribution: '© Esri'
+            },
+            osm: {
+                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                attribution: '© OpenStreetMap'
+            }
+        };
+
         function initMap() {
             map = L.map('map', {
                 center: [37.7749, -122.4194],
@@ -845,8 +914,12 @@
                 attributionControl: false
             });
 
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                attribution: '© OpenStreetMap © CARTO',
+            // Load saved style preference or default to voyager
+            const savedStyle = localStorage.getItem('map_style') || 'voyager';
+            const styleConfig = mapStyles[savedStyle];
+
+            baseLayer = L.tileLayer(styleConfig.url, {
+                attribution: styleConfig.attribution,
                 maxZoom: 19
             }).addTo(map);
         }

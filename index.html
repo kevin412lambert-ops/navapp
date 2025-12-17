@@ -1716,10 +1716,11 @@
             document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
             document.getElementById('weather-condition').textContent = weatherData.condition;
 
-            // Rotate wind arrow to match wind direction (arrow points in direction wind is coming from)
+            // Rotate wind arrow to show where wind is blowing (opposite of where it's coming from)
+            // If wind is "From SSE" (157.5°), arrow points NNW (157.5° + 180° = 337.5°)
             const windArrow = document.getElementById('wind-arrow');
             if (weatherData.windDirection !== null && weatherData.windDirection !== undefined) {
-                windArrow.style.transform = `rotate(${weatherData.windDirection}deg)`;
+                windArrow.style.transform = `rotate(${weatherData.windDirection + 180}deg)`;
                 windArrow.style.opacity = '1';
             } else {
                 windArrow.style.opacity = '0.3';

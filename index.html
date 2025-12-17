@@ -684,9 +684,16 @@
                                 <label style="font-size: 11px; color: #ccc;">Background:</label>
                                 <input type="color" id="color-background" value="#F5F5F0" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <label style="font-size: 11px; color: #ccc;">Text Labels:</label>
                                 <input type="color" id="color-text" value="#333333" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 11px; color: #ccc;">Text Size:</label>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <input type="range" id="text-size-slider" min="8" max="16" value="12" style="width: 80px;">
+                                    <span id="text-size-value" style="font-size: 11px; color: #f97316; min-width: 30px;">12px</span>
+                                </div>
                             </div>
                         </div>
 
@@ -824,6 +831,7 @@
             initRadarOpacitySlider();
             initMapZoomSlider();
             initMapStyleSelector();
+            initTextSizeSlider();
             loadSavedColors();
         }
 
@@ -942,6 +950,16 @@
                 });
 
                 console.log(`Map style changed to: ${newStyle}`);
+            });
+        }
+
+        function initTextSizeSlider() {
+            const slider = document.getElementById('text-size-slider');
+            const valueDisplay = document.getElementById('text-size-value');
+
+            // Slider input handler - update display in real-time
+            slider.addEventListener('input', (e) => {
+                valueDisplay.textContent = `${e.target.value}px`;
             });
         }
 
@@ -2394,79 +2412,172 @@
             }
         }
 
+        // Helper: Convert hex color to RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        // Helper: Convert RGB to hex
+        function rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+
+        // Helper: Determine if color is light or dark
+        function isLightColor(hex) {
+            const rgb = hexToRgb(hex);
+            if (!rgb) return false;
+            // Calculate luminance using relative luminance formula
+            const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+            return luminance > 0.5;
+        }
+
+        // Helper: Generate gradient color (darker if light, lighter if dark)
+        function generateGradientColor(baseColor, amount = 0.15) {
+            const rgb = hexToRgb(baseColor);
+            if (!rgb) return baseColor;
+
+            const isLight = isLightColor(baseColor);
+            const factor = isLight ? (1 - amount) : (1 + amount);
+
+            let r = Math.round(rgb.r * factor);
+            let g = Math.round(rgb.g * factor);
+            let b = Math.round(rgb.b * factor);
+
+            // Clamp values to 0-255
+            r = Math.max(0, Math.min(255, r));
+            g = Math.max(0, Math.min(255, g));
+            b = Math.max(0, Math.min(255, b));
+
+            return rgbToHex(r, g, b);
+        }
+
+        // Helper: Create gradient expression for MapLibre
+        function createGradientExpression(baseColor, gradientColor) {
+            // Create an interpolate expression for a subtle gradient effect
+            // This simulates a gradient by varying color based on zoom level
+            return [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                8, baseColor,
+                12, gradientColor,
+                16, baseColor
+            ];
+        }
+
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
             try {
                 const response = await fetch(baseStyleURL);
                 const styleJSON = await response.json();
 
+                // Generate gradient colors
+                const highwayGradient = generateGradientColor(customColors.highway);
+                const primaryGradient = generateGradientColor(customColors.primary);
+                const streetGradient = generateGradientColor(customColors.street);
+                const waterGradient = generateGradientColor(customColors.water);
+                const waterwayGradient = generateGradientColor(customColors.waterway);
+                const backgroundGradient = generateGradientColor(customColors.background);
+
                 // Find and modify layers
                 styleJSON.layers.forEach(layer => {
                     if (!layer.paint) return;
 
-                    // Modify highway colors
+                    // Modify highway colors with gradient
                     if (layer.id.includes('road_mot') || layer.id.includes('motorway')) {
                         if (layer.paint['line-color']) {
-                            layer.paint['line-color'] = customColors.highway;
+                            layer.paint['line-color'] = createGradientExpression(customColors.highway, highwayGradient);
                         }
                     }
 
-                    // Modify primary road colors
+                    // Modify primary road colors with gradient
                     if (layer.id.includes('road_pri') || layer.id.includes('primary')) {
                         if (layer.paint['line-color']) {
-                            layer.paint['line-color'] = customColors.primary;
+                            layer.paint['line-color'] = createGradientExpression(customColors.primary, primaryGradient);
                         }
                     }
 
-                    // Modify street colors (secondary, tertiary, residential roads)
+                    // Modify street colors with gradient (secondary, tertiary, residential roads)
                     if (layer.id.includes('road_sec') || layer.id.includes('secondary') ||
                         layer.id.includes('road_ter') || layer.id.includes('tertiary') ||
                         layer.id.includes('road_res') || layer.id.includes('residential') ||
                         layer.id.includes('road_min') || layer.id.includes('minor')) {
                         if (layer.paint['line-color']) {
-                            layer.paint['line-color'] = customColors.street;
+                            layer.paint['line-color'] = createGradientExpression(customColors.street, streetGradient);
                         }
                     }
 
-                    // Modify building colors
+                    // Modify building colors (no gradient)
                     if (layer.id === 'building' || layer.id === 'building-top') {
                         if (layer.paint['fill-color']) {
                             layer.paint['fill-color'] = customColors.building;
                         }
                     }
 
-                    // Modify water colors
+                    // Modify water colors with gradient
                     if (layer.id === 'water') {
                         if (layer.paint['fill-color']) {
-                            layer.paint['fill-color'] = customColors.water;
+                            layer.paint['fill-color'] = createGradientExpression(customColors.water, waterGradient);
                         }
                     }
 
-                    // Modify waterway colors
+                    // Modify waterway colors with gradient
                     if (layer.id === 'waterway') {
                         if (layer.paint['line-color']) {
-                            layer.paint['line-color'] = customColors.waterway;
+                            layer.paint['line-color'] = createGradientExpression(customColors.waterway, waterwayGradient);
                         }
                     }
 
-                    // Modify background color (land)
+                    // Modify background color with gradient (land)
                     if (layer.id === 'background' || layer.id === 'landcover' ||
                         layer.id === 'land' || layer.id.includes('landuse')) {
                         if (layer.paint['background-color']) {
-                            layer.paint['background-color'] = customColors.background;
+                            layer.paint['background-color'] = createGradientExpression(customColors.background, backgroundGradient);
                         }
                         if (layer.paint['fill-color']) {
-                            layer.paint['fill-color'] = customColors.background;
+                            layer.paint['fill-color'] = createGradientExpression(customColors.background, backgroundGradient);
                         }
                     }
 
-                    // Modify text/label colors
-                    if (layer.type === 'symbol' && layer.paint) {
-                        if (layer.paint['text-color']) {
+                    // Modify text/label colors and size
+                    if (layer.type === 'symbol') {
+                        // Update text color
+                        if (layer.paint && layer.paint['text-color']) {
                             layer.paint['text-color'] = customColors.text;
                         }
-                        if (layer.paint['text-halo-color']) {
+                        if (layer.paint && layer.paint['text-halo-color']) {
                             // Keep halo but adjust to contrast with new text color
                             layer.paint['text-halo-color'] = customColors.text === '#333333' ? '#FFFFFF' : '#000000';
+                        }
+
+                        // Update text size
+                        if (layer.layout && customColors.textSize) {
+                            if (layer.layout['text-size']) {
+                                // If text-size is a number, multiply by the scale factor
+                                if (typeof layer.layout['text-size'] === 'number') {
+                                    layer.layout['text-size'] = layer.layout['text-size'] * (customColors.textSize / 12);
+                                }
+                                // If text-size is an expression, we'll apply a multiplier
+                                else if (Array.isArray(layer.layout['text-size'])) {
+                                    // For zoom-based expressions, multiply all size values
+                                    const scaleExpression = (expr, factor) => {
+                                        if (Array.isArray(expr)) {
+                                            return expr.map(item => {
+                                                if (typeof item === 'number' && item > 1 && item < 100) {
+                                                    return item * factor;
+                                                }
+                                                return item;
+                                            });
+                                        }
+                                        return expr;
+                                    };
+                                    layer.layout['text-size'] = scaleExpression(layer.layout['text-size'], customColors.textSize / 12);
+                                }
+                            }
                         }
                     }
                 });
@@ -2487,7 +2598,8 @@
                 water: document.getElementById('color-water').value,
                 waterway: document.getElementById('color-waterway').value,
                 background: document.getElementById('color-background').value,
-                text: document.getElementById('color-text').value
+                text: document.getElementById('color-text').value,
+                textSize: parseInt(document.getElementById('text-size-slider').value)
             };
 
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -2516,7 +2628,8 @@
                 water: document.getElementById('color-water').value,
                 waterway: document.getElementById('color-waterway').value,
                 background: document.getElementById('color-background').value,
-                text: document.getElementById('color-text').value
+                text: document.getElementById('color-text').value,
+                textSize: document.getElementById('text-size-slider').value
             };
 
             localStorage.setItem('custom_style_colors', JSON.stringify(customColors));
@@ -2533,6 +2646,8 @@
             document.getElementById('color-waterway').value = '#CCE7EA';
             document.getElementById('color-background').value = '#F5F5F0';
             document.getElementById('color-text').value = '#333333';
+            document.getElementById('text-size-slider').value = '12';
+            document.getElementById('text-size-value').textContent = '12px';
 
             // Reload base style
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -2556,6 +2671,10 @@
                 document.getElementById('color-waterway').value = colors.waterway || '#CCE7EA';
                 document.getElementById('color-background').value = colors.background || '#F5F5F0';
                 document.getElementById('color-text').value = colors.text || '#333333';
+
+                const textSize = colors.textSize || '12';
+                document.getElementById('text-size-slider').value = textSize;
+                document.getElementById('text-size-value').textContent = textSize + 'px';
             }
         }
 

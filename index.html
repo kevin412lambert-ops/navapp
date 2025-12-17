@@ -649,6 +649,10 @@
                                 <label style="font-size: 11px; color: #ccc;">Major Roads:</label>
                                 <input type="color" id="color-primary" value="#FFDD88" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Streets:</label>
+                                <input type="color" id="color-street" value="#FFFFFF" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
                         </div>
 
                         <!-- Buildings -->
@@ -670,6 +674,19 @@
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <label style="font-size: 11px; color: #ccc;">Rivers:</label>
                                 <input type="color" id="color-waterway" value="#CCE7EA" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                        </div>
+
+                        <!-- Map & Text -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Map & Text</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Background:</label>
+                                <input type="color" id="color-background" value="#F5F5F0" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 11px; color: #ccc;">Text Labels:</label>
+                                <input type="color" id="color-text" value="#333333" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
                         </div>
 
@@ -2400,6 +2417,16 @@
                         }
                     }
 
+                    // Modify street colors (secondary, tertiary, residential roads)
+                    if (layer.id.includes('road_sec') || layer.id.includes('secondary') ||
+                        layer.id.includes('road_ter') || layer.id.includes('tertiary') ||
+                        layer.id.includes('road_res') || layer.id.includes('residential') ||
+                        layer.id.includes('road_min') || layer.id.includes('minor')) {
+                        if (layer.paint['line-color']) {
+                            layer.paint['line-color'] = customColors.street;
+                        }
+                    }
+
                     // Modify building colors
                     if (layer.id === 'building' || layer.id === 'building-top') {
                         if (layer.paint['fill-color']) {
@@ -2420,6 +2447,28 @@
                             layer.paint['line-color'] = customColors.waterway;
                         }
                     }
+
+                    // Modify background color (land)
+                    if (layer.id === 'background' || layer.id === 'landcover' ||
+                        layer.id === 'land' || layer.id.includes('landuse')) {
+                        if (layer.paint['background-color']) {
+                            layer.paint['background-color'] = customColors.background;
+                        }
+                        if (layer.paint['fill-color']) {
+                            layer.paint['fill-color'] = customColors.background;
+                        }
+                    }
+
+                    // Modify text/label colors
+                    if (layer.type === 'symbol' && layer.paint) {
+                        if (layer.paint['text-color']) {
+                            layer.paint['text-color'] = customColors.text;
+                        }
+                        if (layer.paint['text-halo-color']) {
+                            // Keep halo but adjust to contrast with new text color
+                            layer.paint['text-halo-color'] = customColors.text === '#333333' ? '#FFFFFF' : '#000000';
+                        }
+                    }
                 });
 
                 return styleJSON;
@@ -2433,9 +2482,12 @@
             const customColors = {
                 highway: document.getElementById('color-highway').value,
                 primary: document.getElementById('color-primary').value,
+                street: document.getElementById('color-street').value,
                 building: document.getElementById('color-building').value,
                 water: document.getElementById('color-water').value,
-                waterway: document.getElementById('color-waterway').value
+                waterway: document.getElementById('color-waterway').value,
+                background: document.getElementById('color-background').value,
+                text: document.getElementById('color-text').value
             };
 
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -2459,9 +2511,12 @@
             const customColors = {
                 highway: document.getElementById('color-highway').value,
                 primary: document.getElementById('color-primary').value,
+                street: document.getElementById('color-street').value,
                 building: document.getElementById('color-building').value,
                 water: document.getElementById('color-water').value,
-                waterway: document.getElementById('color-waterway').value
+                waterway: document.getElementById('color-waterway').value,
+                background: document.getElementById('color-background').value,
+                text: document.getElementById('color-text').value
             };
 
             localStorage.setItem('custom_style_colors', JSON.stringify(customColors));
@@ -2472,9 +2527,12 @@
             // Reset to defaults
             document.getElementById('color-highway').value = '#FFA500';
             document.getElementById('color-primary').value = '#FFDD88';
+            document.getElementById('color-street').value = '#FFFFFF';
             document.getElementById('color-building').value = '#E4DCD0';
             document.getElementById('color-water').value = '#B0D0D6';
             document.getElementById('color-waterway').value = '#CCE7EA';
+            document.getElementById('color-background').value = '#F5F5F0';
+            document.getElementById('color-text').value = '#333333';
 
             // Reload base style
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -2490,11 +2548,14 @@
             const saved = localStorage.getItem('custom_style_colors');
             if (saved) {
                 const colors = JSON.parse(saved);
-                document.getElementById('color-highway').value = colors.highway;
-                document.getElementById('color-primary').value = colors.primary;
-                document.getElementById('color-building').value = colors.building;
-                document.getElementById('color-water').value = colors.water;
-                document.getElementById('color-waterway').value = colors.waterway;
+                document.getElementById('color-highway').value = colors.highway || '#FFA500';
+                document.getElementById('color-primary').value = colors.primary || '#FFDD88';
+                document.getElementById('color-street').value = colors.street || '#FFFFFF';
+                document.getElementById('color-building').value = colors.building || '#E4DCD0';
+                document.getElementById('color-water').value = colors.water || '#B0D0D6';
+                document.getElementById('color-waterway').value = colors.waterway || '#CCE7EA';
+                document.getElementById('color-background').value = colors.background || '#F5F5F0';
+                document.getElementById('color-text').value = colors.text || '#333333';
             }
         }
 

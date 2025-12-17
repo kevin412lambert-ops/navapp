@@ -693,6 +693,16 @@
             isCached: false     // Whether current display is from cache
         };
 
+        // Road geometry caching for map-matching and road-following
+        let roadGeometryCache = {
+            segments: [],           // Array of road segments with geometry
+            currentSegment: null,   // Active segment marker is on
+            currentPosition: null,  // Current position on road {segmentIndex, progress, lat, lng}
+            lastFetch: 0,          // Timestamp of last geometry fetch
+            lastFetchLat: null,    // Last fetch location
+            lastFetchLng: null
+        };
+
         const UPDATE_INTERVAL = 1000; // Update display every second
         const ROAD_QUERY_INTERVAL = 5000; // Query road info every 5 seconds
         const EXIT_QUERY_INTERVAL = 10000; // Query exits every 10 seconds
@@ -783,11 +793,26 @@
                 previousLocation = { ...currentLocation };
             }
 
+            // Calculate speed from position change if not provided by GPS
+            let calculatedSpeed = coords.speed; // m/s
+            if ((calculatedSpeed === null || calculatedSpeed === undefined) && previousLocation && lastGPSUpdateTime) {
+                const timeDelta = (now - lastGPSUpdateTime) / 1000; // seconds
+                if (timeDelta > 0) {
+                    const distance = calculateDistance(
+                        previousLocation.lat,
+                        previousLocation.lng,
+                        coords.latitude,
+                        coords.longitude
+                    ); // distance in miles
+                    calculatedSpeed = (distance * 1609.34) / timeDelta; // convert miles to meters, then m/s
+                }
+            }
+
             // Update current location
             currentLocation = {
                 lat: coords.latitude,
                 lng: coords.longitude,
-                speed: coords.speed, // m/s
+                speed: calculatedSpeed, // m/s (from GPS or calculated)
                 heading: coords.heading, // degrees
                 accuracy: coords.accuracy, // meters
                 altitude: coords.altitude, // meters
@@ -839,100 +864,181 @@
         }
 
         // ==================== MAP MARKER ====================
-        function animateMarker(startLat, startLng, endLat, endLng, options = {}) {
+        function animateMarkerAlongRoad() {
             // Cancel any ongoing animation
             if (markerAnimation) {
                 cancelAnimationFrame(markerAnimation);
                 markerAnimation = null;
             }
 
-            // Calculate velocity (degrees per millisecond)
-            const avgInterval = getAverageGPSInterval();
-            const duration = options.duration || (avgInterval * 0.95); // Use 95% of GPS interval
-
-            currentVelocity.lat = (endLat - startLat) / duration;
-            currentVelocity.lng = (endLng - startLng) / duration;
+            if (!currentLocation) return;
 
             const startTime = performance.now();
-            const shouldExtrapolate = options.extrapolate !== false;
-            isExtrapolating = false;
+            let lastUpdateTime = startTime;
 
             function animate(currentTime) {
-                const elapsed = currentTime - startTime;
-                const progress = elapsed / duration;
+                const elapsedSinceLastUpdate = currentTime - lastUpdateTime;
+                lastUpdateTime = currentTime;
 
-                if (progress < 1) {
-                    // Normal animation phase (0% to 100%)
-                    const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
-
-                    const lat = startLat + (endLat - startLat) * easeProgress;
-                    const lng = startLng + (endLng - startLng) * easeProgress;
-
-                    userMarker.setLatLng([lat, lng]);
-                    markerAnimation = requestAnimationFrame(animate);
-                } else if (shouldExtrapolate && currentLocation.speed > 0.5) {
-                    // Extrapolation phase (beyond 100% - keep moving at constant velocity)
-                    // Continues indefinitely until new GPS update arrives
-                    isExtrapolating = true;
-                    const extraTime = elapsed - duration;
-
-                    // Continue moving at constant velocity
-                    const lat = endLat + (currentVelocity.lat * extraTime);
-                    const lng = endLng + (currentVelocity.lng * extraTime);
-
-                    userMarker.setLatLng([lat, lng]);
-                    markerAnimation = requestAnimationFrame(animate);
-                } else {
-                    // Animation complete, device stationary or extrapolation disabled
+                // Check if vehicle is moving
+                if (!currentLocation || currentLocation.speed < 0.5) {
+                    // Stationary - stop animation
                     markerAnimation = null;
                     isExtrapolating = false;
+                    return;
+                }
+
+                // Try road-following if we have geometry
+                if (roadGeometryCache.currentPosition && roadGeometryCache.currentPosition.segment) {
+                    const newPosition = extrapolateAlongRoad(
+                        roadGeometryCache.currentPosition,
+                        currentLocation.speed,
+                        elapsedSinceLastUpdate
+                    );
+
+                    if (newPosition) {
+                        // Update marker position
+                        userMarker.setLatLng([newPosition.lat, newPosition.lng]);
+
+                        // Update cache
+                        roadGeometryCache.currentPosition = newPosition;
+
+                        // Continue animation
+                        isExtrapolating = true;
+                        markerAnimation = requestAnimationFrame(animate);
+                        return;
+                    }
+                }
+
+                // Fallback: straight-line extrapolation if no road geometry
+                if (currentVelocity.lat !== 0 || currentVelocity.lng !== 0) {
+                    const currentPos = userMarker.getLatLng();
+                    const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
+                    const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
+
+                    userMarker.setLatLng([lat, lng]);
+                    isExtrapolating = true;
+                    markerAnimation = requestAnimationFrame(animate);
                 }
             }
 
             markerAnimation = requestAnimationFrame(animate);
         }
 
-        function updateMapMarker() {
+        function smoothTransitionTo(targetLat, targetLng, duration = 500) {
+            // Cancel ongoing animation
+            if (markerAnimation) {
+                cancelAnimationFrame(markerAnimation);
+                markerAnimation = null;
+            }
+
+            const currentPos = userMarker.getLatLng();
+            const startLat = currentPos.lat;
+            const startLng = currentPos.lng;
+            const startTime = performance.now();
+
+            function animate(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+
+                const lat = startLat + (targetLat - startLat) * easeProgress;
+                const lng = startLng + (targetLng - startLng) * easeProgress;
+
+                userMarker.setLatLng([lat, lng]);
+
+                if (progress < 1) {
+                    markerAnimation = requestAnimationFrame(animate);
+                } else {
+                    // Transition complete, restart road-following
+                    animateMarkerAlongRoad();
+                }
+            }
+
+            markerAnimation = requestAnimationFrame(animate);
+        }
+
+        async function updateMapMarker() {
             if (!currentLocation) return;
 
             const newLat = currentLocation.lat;
             const newLng = currentLocation.lng;
+            const now = performance.now();
+
+            // Fetch road geometry if needed (every 30 seconds or if moved far)
+            const needsGeometryFetch =
+                !roadGeometryCache.segments.length ||
+                (now - roadGeometryCache.lastFetch > 30000) ||
+                (roadGeometryCache.lastFetchLat &&
+                 calculateDistance(newLat, newLng, roadGeometryCache.lastFetchLat, roadGeometryCache.lastFetchLng) > 0.5); // > 0.5 miles
+
+            if (needsGeometryFetch) {
+                roadGeometryCache.lastFetchLat = newLat;
+                roadGeometryCache.lastFetchLng = newLng;
+                roadGeometryCache.lastFetch = now;
+
+                // Await the fetch to ensure we have geometry before map-matching
+                const segments = await fetchRoadGeometry(newLat, newLng);
+                roadGeometryCache.segments = segments;
+                console.log(`Road geometry updated: ${segments.length} segments`);
+            }
+
+            // Map-match GPS to road
+            const matchedPosition = findNearestPointOnRoad(newLat, newLng, roadGeometryCache.segments);
 
             if (userMarker) {
-                // Get current marker position (may be extrapolated beyond last GPS point)
+                // Get current marker position
                 const currentLatLng = userMarker.getLatLng();
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
                 // Calculate distance moved
-                const latDiff = Math.abs(newLat - currentLat);
-                const lngDiff = Math.abs(newLng - currentLng);
-                const totalDiff = latDiff + lngDiff;
+                const distanceMoved = calculateDistance(currentLat, currentLng, newLat, newLng);
 
-                // Decision logic
-                if (totalDiff < 0.00001) {
-                    // Tiny movement (<1m) - ignore to prevent jitter
+                if (distanceMoved < 0.00001) {
+                    // Tiny movement - ignore to prevent jitter
                     return;
-                } else if (totalDiff >= 0.001) {
-                    // Large jump (>100m) - instant update (GPS correction or tunnel exit)
-                    if (markerAnimation) {
-                        cancelAnimationFrame(markerAnimation);
-                        markerAnimation = null;
-                    }
-                    userMarker.setLatLng([newLat, newLng]);
-                    isExtrapolating = false;
-                } else {
-                    // Normal movement (1m-100m) - smooth animation with adaptive duration
-                    const speed = currentLocation.speed || 0; // m/s
-                    const isMoving = speed > 0.5; // Moving if >0.5 m/s (~1 mph)
+                }
 
-                    animateMarker(currentLat, currentLng, newLat, newLng, {
-                        extrapolate: isMoving // Only extrapolate if actually moving
-                    });
+                if (matchedPosition) {
+                    // Road-following mode
+                    const distanceFromMarkerToMatched = calculateDistance(
+                        currentLat, currentLng,
+                        matchedPosition.lat, matchedPosition.lng
+                    );
+
+                    if (distanceFromMarkerToMatched > 0.0001) {
+                        // More than ~10m off - smooth correction to matched position
+                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 500);
+                    }
+
+                    // Update road position cache
+                    roadGeometryCache.currentPosition = matchedPosition;
+                    roadGeometryCache.currentSegment = matchedPosition.segment;
+
+                    // Calculate velocity for fallback straight-line extrapolation
+                    const avgInterval = getAverageGPSInterval();
+                    currentVelocity.lat = (matchedPosition.lat - currentLat) / avgInterval;
+                    currentVelocity.lng = (matchedPosition.lng - currentLng) / avgInterval;
+
+                    // Start road-following animation
+                    if (currentLocation.speed > 0.5) {
+                        animateMarkerAlongRoad();
+                    }
+                } else {
+                    // No road geometry - fallback to straight-line
+                    const avgInterval = getAverageGPSInterval();
+                    currentVelocity.lat = (newLat - currentLat) / avgInterval;
+                    currentVelocity.lng = (newLng - currentLng) / avgInterval;
+
+                    smoothTransitionTo(newLat, newLng, 500);
                 }
             } else {
-                // First time: create marker without animation
-                userMarker = L.circleMarker([newLat, newLng], {
+                // First time: create marker
+                const initialLat = matchedPosition ? matchedPosition.lat : newLat;
+                const initialLng = matchedPosition ? matchedPosition.lng : newLng;
+
+                userMarker = L.circleMarker([initialLat, initialLng], {
                     radius: 10,
                     fillColor: '#4285F4',
                     color: '#ffffff',
@@ -941,11 +1047,23 @@
                     fillOpacity: 0.9
                 }).addTo(map);
 
-                map.setView([newLat, newLng], 15);
+                map.setView([initialLat, initialLng], 15);
+
+                if (matchedPosition) {
+                    roadGeometryCache.currentPosition = matchedPosition;
+                    roadGeometryCache.currentSegment = matchedPosition.segment;
+                }
+
+                // Start animation if moving
+                if (currentLocation.speed > 0.5) {
+                    animateMarkerAlongRoad();
+                }
             }
 
             // Re-center map smoothly
-            map.panTo([newLat, newLng]);
+            const targetLat = matchedPosition ? matchedPosition.lat : newLat;
+            const targetLng = matchedPosition ? matchedPosition.lng : newLng;
+            map.panTo([targetLat, targetLng]);
         }
 
         // ==================== ROAD INFO QUERY ====================
@@ -1000,7 +1118,7 @@
                 roadInfo = {
                     road: motorway || roadName || 'Unknown',
                     roadName: roadName || null,  // Keep separate road name for combining
-                    highway: data.address?.highway || data.address?.motorway || null,
+                    highway: data.address?.motorway || null,  // Fixed: removed undefined highway field
                     houseNumber: data.address?.house_number || null,
                     city: city,
                     state: data.address?.state || '',
@@ -1050,12 +1168,20 @@
         function formatHighwayName(name) {
             if (!name) return name;
 
+            let formatted = name;
+
             // Convert "Interstate 25" → "I25"
             // Convert "Interstate 35 E" → "I35E"
-            let formatted = name.replace(/Interstate\s+(\d+)\s*([NESW])?/i, 'I$1$2');
+            formatted = formatted.replace(/Interstate\s+(\d+)\s*([NESW])?/gi, 'I$1$2');
 
             // Convert "US Highway 287" → "US287"
-            formatted = formatted.replace(/US\s+Highway\s+(\d+)/i, 'US$1');
+            formatted = formatted.replace(/US\s+Highway\s+(\d+)\s*([NESW])?/gi, 'US$1$2');
+
+            // Convert "State Highway 114" → "SH114"
+            formatted = formatted.replace(/State\s+Highway\s+(\d+)\s*([NESW])?/gi, 'SH$1$2');
+
+            // Remove extra spaces
+            formatted = formatted.trim().replace(/\s+/g, ' ');
 
             return formatted;
         }
@@ -1067,6 +1193,171 @@
             const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
             const index = Math.round(heading / 45) % 8;
             return directions[index];
+        }
+
+        // ==================== ROAD GEOMETRY & MAP MATCHING ====================
+        async function fetchRoadGeometry(lat, lng, radius = 150) {
+            try {
+                const query = `
+                    [out:json][timeout:5];
+                    way(around:${radius},${lat},${lng})["highway"];
+                    out geom;
+                `;
+
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: query
+                });
+
+                if (!response.ok) return [];
+
+                const data = await response.json();
+
+                // Parse geometry data
+                const segments = data.elements
+                    .filter(el => el.type === 'way' && el.geometry && el.geometry.length > 1)
+                    .map(el => ({
+                        id: el.id,
+                        tags: el.tags || {},
+                        geometry: el.geometry.map(node => ({
+                            lat: node.lat,
+                            lng: node.lon
+                        }))
+                    }));
+
+                console.log(`Fetched ${segments.length} road segments with geometry`);
+                return segments;
+            } catch (error) {
+                console.error('Road geometry fetch failed:', error);
+                return [];
+            }
+        }
+
+        function projectPointOntoLine(pointLat, pointLng, lineStart, lineEnd) {
+            // Project point onto line segment and return closest point + progress (0-1)
+            const A = {lat: pointLat, lng: pointLng};
+            const B = {lat: lineStart.lat, lng: lineStart.lng};
+            const C = {lat: lineEnd.lat, lng: lineEnd.lng};
+
+            // Vector BC
+            const BC_lat = C.lat - B.lat;
+            const BC_lng = C.lng - B.lng;
+
+            // Vector BA
+            const BA_lat = A.lat - B.lat;
+            const BA_lng = A.lng - B.lng;
+
+            // Dot product
+            const dot = BA_lat * BC_lat + BA_lng * BC_lng;
+
+            // Length squared of BC
+            const lenSq = BC_lat * BC_lat + BC_lng * BC_lng;
+
+            // Parameter t (0-1) along line segment
+            let t = dot / lenSq;
+
+            // Clamp to [0, 1] to stay on line segment
+            t = Math.max(0, Math.min(1, t));
+
+            // Calculate projected point
+            const projectedLat = B.lat + t * BC_lat;
+            const projectedLng = B.lng + t * BC_lng;
+
+            return {
+                lat: projectedLat,
+                lng: projectedLng,
+                progress: t
+            };
+        }
+
+        function findNearestPointOnRoad(gpsLat, gpsLng, roadSegments) {
+            if (!roadSegments || roadSegments.length === 0) return null;
+
+            let nearest = null;
+            let minDistance = Infinity;
+
+            for (const segment of roadSegments) {
+                for (let i = 0; i < segment.geometry.length - 1; i++) {
+                    const p1 = segment.geometry[i];
+                    const p2 = segment.geometry[i + 1];
+
+                    // Project GPS point onto this line segment
+                    const projected = projectPointOntoLine(gpsLat, gpsLng, p1, p2);
+                    const distance = calculateDistance(gpsLat, gpsLng, projected.lat, projected.lng);
+
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearest = {
+                            segment: segment,
+                            segmentIndex: i,
+                            position: projected,
+                            lat: projected.lat,
+                            lng: projected.lng,
+                            progress: projected.progress,
+                            distance: distance
+                        };
+                    }
+                }
+            }
+
+            return nearest;
+        }
+
+        function extrapolateAlongRoad(currentPos, speed, elapsedTime) {
+            if (!currentPos || !currentPos.segment) {
+                return null;
+            }
+
+            // Speed in m/s, elapsedTime in ms
+            const distanceToMove = (speed * elapsedTime) / 1000; // meters
+
+            // Convert to degrees (approximate - varies by latitude)
+            const degreesToMove = distanceToMove / 111320;
+
+            // Walk along road geometry from current position
+            let remainingDistance = degreesToMove;
+            let segmentIndex = currentPos.segmentIndex;
+            let progress = currentPos.progress;
+            const geometry = currentPos.segment.geometry;
+
+            while (remainingDistance > 0 && segmentIndex < geometry.length - 1) {
+                const p1 = geometry[segmentIndex];
+                const p2 = geometry[segmentIndex + 1];
+
+                // Distance remaining in current segment
+                const segmentLength = calculateDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+                const remainingInSegment = segmentLength * (1 - progress);
+
+                if (remainingDistance < remainingInSegment) {
+                    // Move within current segment
+                    progress += remainingDistance / segmentLength;
+                    remainingDistance = 0;
+                } else {
+                    // Move to next segment
+                    remainingDistance -= remainingInSegment;
+                    segmentIndex++;
+                    progress = 0;
+                }
+
+                // Safety: don't go past end of road
+                if (segmentIndex >= geometry.length - 1) {
+                    segmentIndex = geometry.length - 2;
+                    progress = 1;
+                    break;
+                }
+            }
+
+            // Interpolate position on segment
+            const p1 = geometry[segmentIndex];
+            const p2 = geometry[segmentIndex + 1];
+
+            return {
+                lat: p1.lat + (p2.lat - p1.lat) * progress,
+                lng: p1.lng + (p2.lng - p1.lng) * progress,
+                segmentIndex: segmentIndex,
+                progress: progress,
+                segment: currentPos.segment
+            };
         }
 
         // ==================== SPEED LIMIT QUERY ====================
@@ -1404,7 +1695,7 @@
             const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                                 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
             const index = Math.round(degrees / 22.5) % 16;
-            return directions[index];
+            return 'From ' + directions[index];
         }
 
         function updateWeatherDisplay() {
@@ -1425,7 +1716,7 @@
             document.getElementById('weather-wind-dir').textContent = getWindDirection(weatherData.windDirection);
             document.getElementById('weather-condition').textContent = weatherData.condition;
 
-            // Rotate wind arrow to show wind direction
+            // Rotate wind arrow to match wind direction (arrow points in direction wind is coming from)
             const windArrow = document.getElementById('wind-arrow');
             if (weatherData.windDirection !== null && weatherData.windDirection !== undefined) {
                 windArrow.style.transform = `rotate(${weatherData.windDirection}deg)`;

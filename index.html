@@ -2462,19 +2462,8 @@
 
         // Helper: Create gradient expression for MapLibre
         function createGradientExpression(baseColor, gradientColor) {
-            // Blend base and gradient colors for a visible color shift
-            // Create an intermediate color (50% blend)
-            const baseRgb = hexToRgb(baseColor);
-            const gradRgb = hexToRgb(gradientColor);
-
-            const blendedColor = rgbToHex(
-                Math.round((baseRgb.r + gradRgb.r) / 2),
-                Math.round((baseRgb.g + gradRgb.g) / 2),
-                Math.round((baseRgb.b + gradRgb.b) / 2)
-            );
-
-            // Return the blended color for maximum visibility
-            return blendedColor;
+            // Use the full gradient color (70% darker/lighter than base)
+            return gradientColor;
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {

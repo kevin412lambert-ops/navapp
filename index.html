@@ -588,11 +588,32 @@
                 <div class="exits-section" style="margin-top: 15px;">
                     <div class="exits-header">Radar Opacity</div>
                     <div style="padding: 12px;">
-                        <input type="range" id="radar-opacity-slider" min="0" max="100" value="60" style="width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="opacity-decrease" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">−</button>
+                            <input type="range" id="radar-opacity-slider" min="0" max="100" value="60" style="flex: 1;">
+                            <button id="opacity-increase" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">+</button>
+                        </div>
                         <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: #666;">
                             <span>0%</span>
                             <span id="radar-opacity-value">60%</span>
                             <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Map Zoom Control -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Map Zoom</div>
+                    <div style="padding: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="zoom-decrease" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">−</button>
+                            <input type="range" id="map-zoom-slider" min="1" max="19" value="15" style="flex: 1;">
+                            <button id="zoom-increase" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">+</button>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: #666;">
+                            <span>1</span>
+                            <span id="map-zoom-value">15</span>
+                            <span>19</span>
                         </div>
                     </div>
                 </div>
@@ -721,12 +742,16 @@
             loadRadar();
             setInterval(updateDisplay, UPDATE_INTERVAL);
             initRadarOpacitySlider();
+            initMapZoomSlider();
         }
 
         function initRadarOpacitySlider() {
             const slider = document.getElementById('radar-opacity-slider');
             const valueDisplay = document.getElementById('radar-opacity-value');
+            const decreaseBtn = document.getElementById('opacity-decrease');
+            const increaseBtn = document.getElementById('opacity-increase');
 
+            // Slider input handler
             slider.addEventListener('input', (e) => {
                 const opacity = e.target.value / 100;
                 valueDisplay.textContent = `${e.target.value}%`;
@@ -736,6 +761,80 @@
                     radarLayer.setOpacity(opacity);
                 }
             });
+
+            // Decrease button (-5)
+            decreaseBtn.addEventListener('click', () => {
+                const currentValue = parseInt(slider.value);
+                const newValue = Math.max(0, currentValue - 5);
+                slider.value = newValue;
+                valueDisplay.textContent = `${newValue}%`;
+
+                if (radarLayer) {
+                    radarLayer.setOpacity(newValue / 100);
+                }
+            });
+
+            // Increase button (+5)
+            increaseBtn.addEventListener('click', () => {
+                const currentValue = parseInt(slider.value);
+                const newValue = Math.min(100, currentValue + 5);
+                slider.value = newValue;
+                valueDisplay.textContent = `${newValue}%`;
+
+                if (radarLayer) {
+                    radarLayer.setOpacity(newValue / 100);
+                }
+            });
+        }
+
+        function initMapZoomSlider() {
+            const slider = document.getElementById('map-zoom-slider');
+            const valueDisplay = document.getElementById('map-zoom-value');
+            const decreaseBtn = document.getElementById('zoom-decrease');
+            const increaseBtn = document.getElementById('zoom-increase');
+
+            // Slider input handler
+            slider.addEventListener('input', (e) => {
+                const zoom = parseInt(e.target.value);
+                valueDisplay.textContent = zoom;
+
+                if (map) {
+                    map.setZoom(zoom);
+                }
+            });
+
+            // Decrease button (-2)
+            decreaseBtn.addEventListener('click', () => {
+                const currentValue = parseInt(slider.value);
+                const newValue = Math.max(1, currentValue - 2);
+                slider.value = newValue;
+                valueDisplay.textContent = newValue;
+
+                if (map) {
+                    map.setZoom(newValue);
+                }
+            });
+
+            // Increase button (+2)
+            increaseBtn.addEventListener('click', () => {
+                const currentValue = parseInt(slider.value);
+                const newValue = Math.min(19, currentValue + 2);
+                slider.value = newValue;
+                valueDisplay.textContent = newValue;
+
+                if (map) {
+                    map.setZoom(newValue);
+                }
+            });
+
+            // Update slider when map zoom changes (e.g., pinch zoom, scroll wheel)
+            if (map) {
+                map.on('zoomend', () => {
+                    const currentZoom = map.getZoom();
+                    slider.value = currentZoom;
+                    valueDisplay.textContent = currentZoom;
+                });
+            }
         }
 
         function initMap() {

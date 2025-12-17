@@ -1007,12 +1007,7 @@
                         matchedPosition.lat, matchedPosition.lng
                     );
 
-                    if (distanceFromMarkerToMatched > 0.0001) {
-                        // More than ~10m off - smooth correction to matched position
-                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 500);
-                    }
-
-                    // Update road position cache
+                    // Update road position cache FIRST (so animation uses new target)
                     roadGeometryCache.currentPosition = matchedPosition;
                     roadGeometryCache.currentSegment = matchedPosition.segment;
 
@@ -1021,8 +1016,15 @@
                     currentVelocity.lat = (matchedPosition.lat - currentLat) / avgInterval;
                     currentVelocity.lng = (matchedPosition.lng - currentLng) / avgInterval;
 
-                    // Start road-following animation
-                    if (currentLocation.speed > 0.5) {
+                    // Only do hard correction if VERY far off (>50m), otherwise let animation catch up
+                    if (distanceFromMarkerToMatched > 0.0003) {
+                        // More than ~30m off - instant correction (probably GPS jumped or changed roads)
+                        userMarker.setLatLng([matchedPosition.lat, matchedPosition.lng]);
+                    }
+                    // Otherwise, just let the animation naturally move toward the new position
+
+                    // Ensure animation is running if moving
+                    if (currentLocation.speed > 0.5 && !markerAnimation) {
                         animateMarkerAlongRoad();
                     }
                 } else {
@@ -1112,13 +1114,42 @@
                     }
                 }
 
-                const motorway = data.address?.motorway || data.address?.trunk || data.address?.primary;
-                const roadName = data.address?.road;
+                // Extract highway number and name separately
+                // Priority: motorway > trunk > primary > road
+                const motorway = data.address?.motorway;
+                const trunk = data.address?.trunk;
+                const primary = data.address?.primary;
+                const road = data.address?.road;
+
+                // Determine which field contains the highway NUMBER
+                let highwayNumber = motorway || trunk || primary;
+
+                // If no dedicated highway field, road might be the highway number
+                if (!highwayNumber && road) {
+                    // Check if road field looks like a highway number
+                    const roadLower = road.toLowerCase();
+                    if (roadLower.includes('interstate') || roadLower.includes('highway') ||
+                        roadLower.match(/^(i-|us-|sr-|sh-|fm\s*\d+)/i)) {
+                        highwayNumber = road;
+                    }
+                }
+
+                // Determine which field contains the highway NAME (not the number)
+                let highwayName = null;
+                if (road && road !== highwayNumber) {
+                    // Road field contains the name, not the number
+                    const roadLower = road.toLowerCase();
+                    // Make sure it's not also a highway number
+                    if (!roadLower.includes('interstate') && !roadLower.includes('highway') &&
+                        !roadLower.match(/^(i-|us-|sr-|sh-|fm\s*\d+)/i)) {
+                        highwayName = road;
+                    }
+                }
 
                 roadInfo = {
-                    road: motorway || roadName || 'Unknown',
-                    roadName: roadName || null,  // Keep separate road name for combining
-                    highway: data.address?.motorway || null,  // Fixed: removed undefined highway field
+                    road: highwayNumber || road || 'Unknown',  // The highway number
+                    roadName: highwayName || null,  // The highway name (separate)
+                    highwayNumber: highwayNumber || null,  // Explicitly store highway number
                     houseNumber: data.address?.house_number || null,
                     city: city,
                     state: data.address?.state || '',
@@ -1149,12 +1180,18 @@
                 return 'Highway';
             }
 
+            // Check primary roads (could be FM/RM roads or state highways)
+            if (address.primary) {
+                return 'Highway';
+            }
+
             // Fall back to road name string matching
             const road = (address.road || '').toLowerCase();
 
             if (road.includes('interstate') || road.includes('i-')) {
                 return 'Interstate';
-            } else if (road.includes('highway') || road.includes('us-') || road.includes('state route')) {
+            } else if (road.includes('highway') || road.includes('us-') || road.includes('state route') ||
+                       road.match(/^fm\s*\d+/i) || road.match(/^rm\s*\d+/i)) {
                 return 'Highway';
             } else if (road.includes('freeway') || road.includes('expressway')) {
                 return 'Freeway';
@@ -1179,6 +1216,12 @@
 
             // Convert "State Highway 114" → "SH114"
             formatted = formatted.replace(/State\s+Highway\s+(\d+)\s*([NESW])?/gi, 'SH$1$2');
+
+            // Convert "FM 2499" → "FM2499" (Farm-to-Market roads)
+            formatted = formatted.replace(/FM\s+(\d+)/gi, 'FM$1');
+
+            // Convert "RM 1431" → "RM1431" (Ranch-to-Market roads)
+            formatted = formatted.replace(/RM\s+(\d+)/gi, 'RM$1');
 
             // Remove extra spaces
             formatted = formatted.trim().replace(/\s+/g, ' ');
@@ -1365,10 +1408,10 @@
             if (!currentLocation) return;
 
             try {
-                // Query Overpass for nearby ways with maxspeed within 50m
+                // Query Overpass for nearby ways with maxspeed within 100m (wider search for highways)
                 const query = `
                     [out:json][timeout:5];
-                    way(around:50,${currentLocation.lat},${currentLocation.lng})["highway"]["maxspeed"];
+                    way(around:100,${currentLocation.lat},${currentLocation.lng})["highway"]["maxspeed"];
                     out tags;
                 `;
 
@@ -1390,9 +1433,11 @@
                         // Parse speed limit value
                         speedLimit = parseSpeedLimit(speedLimit);
 
-                        // Update cache with new data
-                        if (roadInfo && roadInfo.road) {
-                            const roadKey = formatHighwayName(roadInfo.road); // Use formatted name
+                        // Update cache with new data - use highway number if available
+                        if (roadInfo) {
+                            const roadKey = roadInfo.highwayNumber ?
+                                formatHighwayName(roadInfo.highwayNumber) :
+                                formatHighwayName(roadInfo.road);
                             const direction = getCardinalDirection(currentLocation.heading);
 
                             speedLimitCache = {
@@ -1416,33 +1461,49 @@
                 }
 
                 // No speed limit found - check if we should use cached value
-                if (speedLimitCache.value && roadInfo && roadInfo.road) {
-                    const currentRoadKey = formatHighwayName(roadInfo.road);
-                    const currentDirection = getCardinalDirection(currentLocation.heading);
+                if (speedLimitCache.value && roadInfo) {
+                    // Use highway number if available, otherwise use road
+                    const currentRoadKey = roadInfo.highwayNumber ?
+                        formatHighwayName(roadInfo.highwayNumber) :
+                        (roadInfo.road ? formatHighwayName(roadInfo.road) : null);
 
-                    // Use cached value if we're on the same road going the same direction
-                    if (speedLimitCache.road === currentRoadKey &&
-                        speedLimitCache.direction === currentDirection) {
-                        roadInfo.speedLimit = speedLimitCache.value;
-                        speedLimitCache.isCached = true;  // Mark as cached
-                        console.log('Using cached speed limit:', speedLimitCache.value, 'for', currentRoadKey, currentDirection);
-                        return;
+                    if (currentRoadKey) {
+                        // KEEP cached value if we're on the same road (ignore direction changes)
+                        if (speedLimitCache.road === currentRoadKey) {
+                            // Same road - keep showing speed limit regardless of direction
+                            roadInfo.speedLimit = speedLimitCache.value;
+                            speedLimitCache.isCached = true;  // Mark as cached
+                            console.log('Using cached speed limit:', speedLimitCache.value, 'for', currentRoadKey);
+                            return;
+                        } else {
+                            // Different road - clear the speed limit (changed roads via turn/ramp)
+                            console.log('Road changed from', speedLimitCache.road, 'to', currentRoadKey, '- clearing speed limit');
+                            roadInfo.speedLimit = null;
+                            speedLimitCache.isCached = false;
+                        }
+                    } else {
+                        // No current road info - clear speed limit display
+                        roadInfo.speedLimit = null;
+                        speedLimitCache.isCached = false;
                     }
+                } else {
+                    // No cache available - clear speed limit display
+                    if (roadInfo) {
+                        roadInfo.speedLimit = null;
+                    }
+                    speedLimitCache.isCached = false;
                 }
-
-                // Different road or no cache - clear speed limit
-                if (roadInfo) {
-                    roadInfo.speedLimit = null;
-                }
-                speedLimitCache.isCached = false;
 
             } catch (error) {
                 console.error('Speed limit query failed:', error);
 
                 // On error, try to use cached value if available and on same road
-                if (speedLimitCache.value && roadInfo && roadInfo.road) {
-                    const currentRoadKey = formatHighwayName(roadInfo.road);
-                    if (speedLimitCache.road === currentRoadKey) {
+                if (speedLimitCache.value && roadInfo) {
+                    const currentRoadKey = roadInfo.highwayNumber ?
+                        formatHighwayName(roadInfo.highwayNumber) :
+                        (roadInfo.road ? formatHighwayName(roadInfo.road) : null);
+
+                    if (currentRoadKey && speedLimitCache.road === currentRoadKey) {
                         roadInfo.speedLimit = speedLimitCache.value;
                         speedLimitCache.isCached = true;
                         console.log('Using cached speed limit (error fallback):', speedLimitCache.value);
@@ -1904,26 +1965,22 @@
 
             // Road info
             if (roadInfo) {
-                // Combine highway/motorway with street name when both exist
+                // ALWAYS show highway number if we have it, optionally add name in parentheses
                 let roadName;
 
-                // Check if we have both a motorway/highway AND a separate street name
-                const hasHighway = roadInfo.road && (roadInfo.road.includes('Interstate') ||
-                                                     roadInfo.road.includes('Highway') ||
-                                                     roadInfo.road.startsWith('I-') ||
-                                                     roadInfo.road.startsWith('US-'));
+                if (roadInfo.highwayNumber) {
+                    // Format the highway number (I25, US287, FM2499, etc.)
+                    const formattedNumber = formatHighwayName(roadInfo.highwayNumber);
 
-                if (hasHighway && roadInfo.roadName && roadInfo.road !== roadInfo.roadName) {
-                    // Format and combine: "I25 (Ronald Reagan Highway)"
-                    const formattedHighway = formatHighwayName(roadInfo.road);
-                    roadName = `${formattedHighway} (${roadInfo.roadName})`;
-                } else if (roadInfo.highway && roadInfo.road) {
-                    // Legacy format with formatting
-                    const formattedHighway = formatHighwayName(roadInfo.highway);
-                    roadName = `${formattedHighway} (${roadInfo.road})`;
-                } else if (roadInfo.highway) {
-                    roadName = formatHighwayName(roadInfo.highway);
+                    if (roadInfo.roadName) {
+                        // Have both number and name: "I35E (Ronald Reagan Highway)"
+                        roadName = `${formattedNumber} (${roadInfo.roadName})`;
+                    } else {
+                        // Just the number: "I35E", "FM2499"
+                        roadName = formattedNumber;
+                    }
                 } else if (roadInfo.road) {
+                    // No highway number, just show whatever road info we have
                     roadName = formatHighwayName(roadInfo.road);
                 } else {
                     roadName = 'Unknown';

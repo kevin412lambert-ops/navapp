@@ -635,9 +635,9 @@
                 <div class="exits-section" style="margin-top: 15px;">
                     <div class="exits-header" style="cursor: pointer; user-select: none;" onclick="toggleStyleEditor()">
                         🎨 Customize Colors
-                        <span id="style-editor-toggle" style="float: right;">▼</span>
+                        <span id="style-editor-toggle" style="float: right;">▲</span>
                     </div>
-                    <div id="style-editor-content" style="display: none; padding: 12px;">
+                    <div id="style-editor-content" style="display: block; padding: 12px;">
                         <!-- Roads -->
                         <div style="margin-bottom: 12px;">
                             <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Roads</div>
@@ -2437,7 +2437,7 @@
         }
 
         // Helper: Generate gradient color (darker if light, lighter if dark)
-        function generateGradientColor(baseColor, amount = 0.15) {
+        function generateGradientColor(baseColor, amount = 0.35) {
             const rgb = hexToRgb(baseColor);
             if (!rgb) return baseColor;
 

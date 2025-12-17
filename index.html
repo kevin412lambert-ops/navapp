@@ -671,9 +671,13 @@
                                 <label style="font-size: 11px; color: #ccc;">Water Bodies:</label>
                                 <input type="color" id="color-water" value="#B0D0D6" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <label style="font-size: 11px; color: #ccc;">Rivers:</label>
                                 <input type="color" id="color-waterway" value="#CCE7EA" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 11px; color: #ccc;">Parks:</label>
+                                <input type="color" id="color-park" value="#C8E6C9" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
                         </div>
 
@@ -2437,7 +2441,7 @@
         }
 
         // Helper: Generate gradient color (darker if light, lighter if dark)
-        function generateGradientColor(baseColor, amount = 0.35) {
+        function generateGradientColor(baseColor, amount = 0.7) {
             const rgb = hexToRgb(baseColor);
             if (!rgb) return baseColor;
 
@@ -2458,15 +2462,9 @@
 
         // Helper: Create gradient expression for MapLibre
         function createGradientExpression(baseColor, gradientColor) {
-            // Create a zoom-based interpolation that's visible at typical zoom levels (15-19)
-            return [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                15, baseColor,
-                17, gradientColor,
-                19, baseColor
-            ];
+            // Use the gradient color directly for maximum visibility
+            // Buildings will use baseColor (no gradient)
+            return gradientColor;
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
@@ -2480,13 +2478,15 @@
                 const streetGradient = generateGradientColor(customColors.street);
                 const waterGradient = generateGradientColor(customColors.water);
                 const waterwayGradient = generateGradientColor(customColors.waterway);
+                const parkGradient = generateGradientColor(customColors.park);
                 const backgroundGradient = generateGradientColor(customColors.background);
 
                 console.log('Applying custom colors with gradients:', {
                     highway: customColors.highway + ' -> ' + highwayGradient,
                     primary: customColors.primary + ' -> ' + primaryGradient,
                     street: customColors.street + ' -> ' + streetGradient,
-                    water: customColors.water + ' -> ' + waterGradient
+                    water: customColors.water + ' -> ' + waterGradient,
+                    park: customColors.park + ' -> ' + parkGradient
                 });
 
                 let modifiedLayers = [];
@@ -2543,6 +2543,16 @@
                         if (layer.paint['line-color']) {
                             layer.paint['line-color'] = createGradientExpression(customColors.waterway, waterwayGradient);
                             modifiedLayers.push(layer.id + ' (waterway)');
+                        }
+                    }
+
+                    // Modify park colors with gradient (parks, forests, green spaces)
+                    if (layer.id.includes('park') || layer.id.includes('wood') ||
+                        layer.id.includes('forest') || layer.id.includes('nature') ||
+                        layer.id.includes('grass') || layer.id.includes('recreation')) {
+                        if (layer.paint['fill-color']) {
+                            layer.paint['fill-color'] = createGradientExpression(customColors.park, parkGradient);
+                            modifiedLayers.push(layer.id + ' (park)');
                         }
                     }
 
@@ -2654,6 +2664,7 @@
                 building: document.getElementById('color-building').value,
                 water: document.getElementById('color-water').value,
                 waterway: document.getElementById('color-waterway').value,
+                park: document.getElementById('color-park').value,
                 background: document.getElementById('color-background').value,
                 text: document.getElementById('color-text').value,
                 textSize: parseInt(document.getElementById('text-size-slider').value)
@@ -2684,6 +2695,7 @@
                 building: document.getElementById('color-building').value,
                 water: document.getElementById('color-water').value,
                 waterway: document.getElementById('color-waterway').value,
+                park: document.getElementById('color-park').value,
                 background: document.getElementById('color-background').value,
                 text: document.getElementById('color-text').value,
                 textSize: document.getElementById('text-size-slider').value
@@ -2701,6 +2713,7 @@
             document.getElementById('color-building').value = '#E4DCD0';
             document.getElementById('color-water').value = '#B0D0D6';
             document.getElementById('color-waterway').value = '#CCE7EA';
+            document.getElementById('color-park').value = '#C8E6C9';
             document.getElementById('color-background').value = '#F5F5F0';
             document.getElementById('color-text').value = '#333333';
             document.getElementById('text-size-slider').value = '12';
@@ -2726,6 +2739,7 @@
                 document.getElementById('color-building').value = colors.building || '#E4DCD0';
                 document.getElementById('color-water').value = colors.water || '#B0D0D6';
                 document.getElementById('color-waterway').value = colors.waterway || '#CCE7EA';
+                document.getElementById('color-park').value = colors.park || '#C8E6C9';
                 document.getElementById('color-background').value = colors.background || '#F5F5F0';
                 document.getElementById('color-text').value = colors.text || '#333333';
 

@@ -2550,25 +2550,57 @@
                         if (layer.layout && customColors.textSize) {
                             const scaleFactor = customColors.textSize / 12;
 
-                            // Recursive function to scale all numbers in deeply nested expressions
-                            const scaleTextSizeRecursive = (value) => {
+                            // Recursive function to scale text sizes in nested expressions
+                            const scaleTextSizeRecursive = (value, context = null) => {
+                                // Handle simple number
                                 if (typeof value === 'number') {
-                                    // Only scale numbers that look like font sizes (between 6 and 100)
-                                    if (value >= 6 && value <= 100) {
+                                    // Only scale if it looks like a font size (6-100) and we're not in a zoom context
+                                    if (context !== 'zoom' && value >= 6 && value <= 100) {
                                         return value * scaleFactor;
                                     }
                                     return value;
                                 }
+
+                                // Handle arrays
                                 if (Array.isArray(value)) {
-                                    return value.map(item => scaleTextSizeRecursive(item));
+                                    // Check if this is an interpolate expression: ["interpolate", [...], ["zoom"], val1, val2, ...]
+                                    if (value[0] === 'interpolate' && Array.isArray(value[2]) && value[2][0] === 'zoom') {
+                                        // Scale only the odd-indexed values after position 3 (the size values, not zoom levels)
+                                        return value.map((item, index) => {
+                                            // Values at indices 4, 6, 8, 10... are sizes (odd positions after header)
+                                            if (index > 3 && index % 2 === 0) {
+                                                return scaleTextSizeRecursive(item, 'size');
+                                            }
+                                            return scaleTextSizeRecursive(item, index > 3 && index % 2 === 1 ? 'zoom' : null);
+                                        });
+                                    }
+                                    // Regular array - recurse normally
+                                    return value.map(item => scaleTextSizeRecursive(item, context));
                                 }
+
+                                // Handle objects
                                 if (typeof value === 'object' && value !== null) {
+                                    // Handle "stops" format: { "stops": [[zoom, size], [zoom, size]] }
+                                    if (value.stops && Array.isArray(value.stops)) {
+                                        return {
+                                            ...value,
+                                            stops: value.stops.map(stop => {
+                                                if (Array.isArray(stop) && stop.length === 2) {
+                                                    // stop[0] is zoom (don't scale), stop[1] is size (scale it)
+                                                    return [stop[0], scaleTextSizeRecursive(stop[1], 'size')];
+                                                }
+                                                return stop;
+                                            })
+                                        };
+                                    }
+                                    // Regular object - recurse
                                     const scaled = {};
                                     for (const key in value) {
-                                        scaled[key] = scaleTextSizeRecursive(value[key]);
+                                        scaled[key] = scaleTextSizeRecursive(value[key], context);
                                     }
                                     return scaled;
                                 }
+
                                 return value;
                             };
 

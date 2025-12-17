@@ -2458,16 +2458,8 @@
 
         // Helper: Create gradient expression for MapLibre
         function createGradientExpression(baseColor, gradientColor) {
-            // Create an interpolate expression for a subtle gradient effect
-            // This simulates a gradient by varying color based on zoom level
-            return [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                8, baseColor,
-                12, gradientColor,
-                16, baseColor
-            ];
+            // Use the gradient color directly to make the effect more visible
+            return gradientColor;
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
@@ -2554,29 +2546,35 @@
                             layer.paint['text-halo-color'] = customColors.text === '#333333' ? '#FFFFFF' : '#000000';
                         }
 
-                        // Update text size
+                        // Update text size - recursively scale ALL text size values
                         if (layer.layout && customColors.textSize) {
+                            const scaleFactor = customColors.textSize / 12;
+
+                            // Recursive function to scale all numbers in deeply nested expressions
+                            const scaleTextSizeRecursive = (value) => {
+                                if (typeof value === 'number') {
+                                    // Only scale numbers that look like font sizes (between 6 and 100)
+                                    if (value >= 6 && value <= 100) {
+                                        return value * scaleFactor;
+                                    }
+                                    return value;
+                                }
+                                if (Array.isArray(value)) {
+                                    return value.map(item => scaleTextSizeRecursive(item));
+                                }
+                                if (typeof value === 'object' && value !== null) {
+                                    const scaled = {};
+                                    for (const key in value) {
+                                        scaled[key] = scaleTextSizeRecursive(value[key]);
+                                    }
+                                    return scaled;
+                                }
+                                return value;
+                            };
+
+                            // Apply to text-size
                             if (layer.layout['text-size']) {
-                                // If text-size is a number, multiply by the scale factor
-                                if (typeof layer.layout['text-size'] === 'number') {
-                                    layer.layout['text-size'] = layer.layout['text-size'] * (customColors.textSize / 12);
-                                }
-                                // If text-size is an expression, we'll apply a multiplier
-                                else if (Array.isArray(layer.layout['text-size'])) {
-                                    // For zoom-based expressions, multiply all size values
-                                    const scaleExpression = (expr, factor) => {
-                                        if (Array.isArray(expr)) {
-                                            return expr.map(item => {
-                                                if (typeof item === 'number' && item > 1 && item < 100) {
-                                                    return item * factor;
-                                                }
-                                                return item;
-                                            });
-                                        }
-                                        return expr;
-                                    };
-                                    layer.layout['text-size'] = scaleExpression(layer.layout['text-size'], customColors.textSize / 12);
-                                }
+                                layer.layout['text-size'] = scaleTextSizeRecursive(layer.layout['text-size']);
                             }
                         }
                     }

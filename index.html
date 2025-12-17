@@ -626,7 +626,12 @@
                             <option value="voyager">CARTO Voyager (Default)</option>
                             <option value="dark">CARTO Dark Matter</option>
                             <option value="satellite">Esri Satellite</option>
-                            <option value="osm">OpenStreetMap Classic</option>
+                            <option value="executive-light">Executive Lightmode</option>
+                            <option value="executive-dark">Executive Darkmode</option>
+                            <option value="cartoon-light">Cartoon Lightmode</option>
+                            <option value="cartoon-dark">Cartoon Darkmode</option>
+                            <option value="holiday-light">Holiday Lightmode</option>
+                            <option value="holiday-dark">Holiday Darkmode</option>
                         </select>
                     </div>
                 </div>
@@ -931,6 +936,85 @@
             }
         }
 
+        // Get predefined theme colors
+        function getThemeColors(themeName) {
+            const themes = {
+                'executive-light': {
+                    highway: '#5A5A5A',
+                    primary: '#8B8B8B',
+                    street: '#CCCCCC',
+                    building: '#E8E3D8',
+                    water: '#7BA7BC',
+                    waterway: '#A5C4D4',
+                    park: '#A8C5A0',
+                    background: '#F5F5F0',
+                    text: '#2C2C2C',
+                    textSize: 12
+                },
+                'executive-dark': {
+                    highway: '#CCCCCC',
+                    primary: '#999999',
+                    street: '#666666',
+                    building: '#3A3A3A',
+                    water: '#2B4C6F',
+                    waterway: '#456B8A',
+                    park: '#3D5C3D',
+                    background: '#1A1A1A',
+                    text: '#E0E0E0',
+                    textSize: 12
+                },
+                'cartoon-light': {
+                    highway: '#FF4444',
+                    primary: '#FFA500',
+                    street: '#FFD700',
+                    building: '#9B59B6',
+                    water: '#00CED1',
+                    waterway: '#87CEEB',
+                    park: '#7FFF00',
+                    background: '#FFF8DC',
+                    text: '#4A235A',
+                    textSize: 13
+                },
+                'cartoon-dark': {
+                    highway: '#FF69B4',
+                    primary: '#FF6B6B',
+                    street: '#FFD93D',
+                    building: '#B565D8',
+                    water: '#00BFFF',
+                    waterway: '#00FFFF',
+                    park: '#39FF14',
+                    background: '#1C1C3C',
+                    text: '#FFFFFF',
+                    textSize: 13
+                },
+                'holiday-light': {
+                    highway: '#C41E3A',
+                    primary: '#8B0000',
+                    street: '#FFFFFF',
+                    building: '#F5E6D3',
+                    water: '#B0C4DE',
+                    waterway: '#D4E4F7',
+                    park: '#0F8B3D',
+                    background: '#FFFAFA',
+                    text: '#1B4D3E',
+                    textSize: 12
+                },
+                'holiday-dark': {
+                    highway: '#FF0000',
+                    primary: '#DA291C',
+                    street: '#98FF98',
+                    building: '#3E2723',
+                    water: '#1E4D8B',
+                    waterway: '#4A90E2',
+                    park: '#2D5016',
+                    background: '#0D1B0E',
+                    text: '#FFD700',
+                    textSize: 12
+                }
+            };
+            return themes[themeName] || null;
+        }
+
         function initMapStyleSelector() {
             const selector = document.getElementById('map-style-selector');
 
@@ -939,14 +1023,37 @@
             selector.value = savedStyle;
 
             // Handle style change
-            selector.addEventListener('change', (e) => {
+            selector.addEventListener('change', async (e) => {
                 const newStyle = e.target.value;
 
                 // Save preference
                 localStorage.setItem('map_style', newStyle);
 
-                // Change map style
-                map.setStyle(getVectorStyleURL(newStyle));
+                // Check if this is a themed style
+                const themeColors = getThemeColors(newStyle);
+
+                if (themeColors) {
+                    // Apply themed colors
+                    const baseStyleURL = getVectorStyleURL(newStyle);
+                    const customStyleJSON = await fetchAndCustomizeStyle(baseStyleURL, themeColors);
+                    map.setStyle(customStyleJSON);
+
+                    // Update color pickers to match theme
+                    document.getElementById('color-highway').value = themeColors.highway;
+                    document.getElementById('color-primary').value = themeColors.primary;
+                    document.getElementById('color-street').value = themeColors.street;
+                    document.getElementById('color-building').value = themeColors.building;
+                    document.getElementById('color-water').value = themeColors.water;
+                    document.getElementById('color-waterway').value = themeColors.waterway;
+                    document.getElementById('color-park').value = themeColors.park;
+                    document.getElementById('color-background').value = themeColors.background;
+                    document.getElementById('color-text').value = themeColors.text;
+                    document.getElementById('text-size-slider').value = themeColors.textSize;
+                    document.getElementById('text-size-value').textContent = themeColors.textSize + 'px';
+                } else {
+                    // Standard map style (voyager, dark, satellite)
+                    map.setStyle(getVectorStyleURL(newStyle));
+                }
 
                 // Re-add radar after style loads
                 map.once('styledata', () => {
@@ -972,16 +1079,33 @@
             const styles = {
                 voyager: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
                 dark: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-                satellite: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-                osm: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
+                satellite: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json'
             };
+
+            // Themed styles use voyager as base
+            if (styleName.includes('executive') || styleName.includes('cartoon') || styleName.includes('holiday')) {
+                return styles.voyager;
+            }
+
             return styles[styleName] || styles.voyager;
         }
 
-        function initMap() {
+        async function initMap() {
+            const savedStyle = localStorage.getItem('map_style') || 'voyager';
+            const themeColors = getThemeColors(savedStyle);
+
+            let initialStyle;
+            if (themeColors) {
+                // Apply themed style on load
+                const baseStyleURL = getVectorStyleURL(savedStyle);
+                initialStyle = await fetchAndCustomizeStyle(baseStyleURL, themeColors);
+            } else {
+                initialStyle = getVectorStyleURL(savedStyle);
+            }
+
             map = new maplibregl.Map({
                 container: 'map',
-                style: getVectorStyleURL(localStorage.getItem('map_style') || 'voyager'),
+                style: initialStyle,
                 center: [-122.4194, 37.7749], // [lng, lat] - REVERSED from Leaflet!
                 zoom: 18,
                 attributionControl: false
@@ -990,6 +1114,21 @@
             map.on('load', () => {
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
+
+                // If theme was applied, update color pickers
+                if (themeColors) {
+                    document.getElementById('color-highway').value = themeColors.highway;
+                    document.getElementById('color-primary').value = themeColors.primary;
+                    document.getElementById('color-street').value = themeColors.street;
+                    document.getElementById('color-building').value = themeColors.building;
+                    document.getElementById('color-water').value = themeColors.water;
+                    document.getElementById('color-waterway').value = themeColors.waterway;
+                    document.getElementById('color-park').value = themeColors.park;
+                    document.getElementById('color-background').value = themeColors.background;
+                    document.getElementById('color-text').value = themeColors.text;
+                    document.getElementById('text-size-slider').value = themeColors.textSize;
+                    document.getElementById('text-size-value').textContent = themeColors.textSize + 'px';
+                }
             });
 
             // Update zoom slider when map zooms
@@ -2460,10 +2599,10 @@
             return rgbToHex(r, g, b);
         }
 
-        // Helper: Create gradient expression for MapLibre
+        // Helper: Apply color (no gradient for now)
         function createGradientExpression(baseColor, gradientColor) {
-            // Use the full gradient color (70% darker/lighter than base)
-            return gradientColor;
+            // Just use the base color - no gradient
+            return baseColor;
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {

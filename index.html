@@ -607,12 +607,12 @@
                     <div style="padding: 12px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <button id="zoom-decrease" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">−</button>
-                            <input type="range" id="map-zoom-slider" min="1" max="19" value="15" style="flex: 1;">
+                            <input type="range" id="map-zoom-slider" min="8" max="19" value="18" style="flex: 1;">
                             <button id="zoom-increase" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">+</button>
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: #666;">
-                            <span>1</span>
-                            <span id="map-zoom-value">15</span>
+                            <span>8</span>
+                            <span id="map-zoom-value">18</span>
                             <span>19</span>
                         </div>
                     </div>
@@ -803,10 +803,10 @@
                 }
             });
 
-            // Decrease button (-2)
+            // Decrease button (-1)
             decreaseBtn.addEventListener('click', () => {
                 const currentValue = parseInt(slider.value);
-                const newValue = Math.max(1, currentValue - 2);
+                const newValue = Math.max(8, currentValue - 1);
                 slider.value = newValue;
                 valueDisplay.textContent = newValue;
 
@@ -815,10 +815,10 @@
                 }
             });
 
-            // Increase button (+2)
+            // Increase button (+1)
             increaseBtn.addEventListener('click', () => {
                 const currentValue = parseInt(slider.value);
-                const newValue = Math.min(19, currentValue + 2);
+                const newValue = Math.min(19, currentValue + 1);
                 slider.value = newValue;
                 valueDisplay.textContent = newValue;
 
@@ -840,7 +840,7 @@
         function initMap() {
             map = L.map('map', {
                 center: [37.7749, -122.4194],
-                zoom: 15,
+                zoom: 18,
                 zoomControl: false,
                 attributionControl: false
             });
@@ -1992,6 +1992,47 @@
         }
 
         // ==================== DISPLAY UPDATES ====================
+        // Auto-zoom state tracking
+        let autoZoomState = {
+            isZoomedOut: false,  // Track if we're currently in the zoomed-out state
+            lastSpeed: 0
+        };
+
+        function handleAutoZoom(speedMph) {
+            // Convert speedMph to number (it might be '--' string)
+            const speed = speedMph === '--' ? 0 : parseFloat(speedMph);
+
+            if (!map) return;
+
+            const SPEED_THRESHOLD = 55;  // MPH
+            const HIGH_SPEED_ZOOM = 17;
+            const NORMAL_ZOOM = 18;
+            const ANIMATION_DURATION = 3;  // seconds
+
+            // Check if we need to zoom out (going fast)
+            if (speed > SPEED_THRESHOLD && !autoZoomState.isZoomedOut) {
+                // Speed exceeded threshold - zoom out to 17
+                map.setZoom(HIGH_SPEED_ZOOM, {
+                    animate: true,
+                    duration: ANIMATION_DURATION
+                });
+                autoZoomState.isZoomedOut = true;
+                console.log(`Speed ${speed} mph > ${SPEED_THRESHOLD} mph - zooming out to ${HIGH_SPEED_ZOOM}`);
+            }
+            // Check if we need to zoom back in (slowed down)
+            else if (speed <= SPEED_THRESHOLD && autoZoomState.isZoomedOut) {
+                // Speed dropped below threshold - zoom back in to 18
+                map.setZoom(NORMAL_ZOOM, {
+                    animate: true,
+                    duration: ANIMATION_DURATION
+                });
+                autoZoomState.isZoomedOut = false;
+                console.log(`Speed ${speed} mph <= ${SPEED_THRESHOLD} mph - zooming in to ${NORMAL_ZOOM}`);
+            }
+
+            autoZoomState.lastSpeed = speed;
+        }
+
         function updateDisplay() {
             if (!currentLocation) return;
 
@@ -2021,6 +2062,9 @@
             } else {
                 document.getElementById('speed-limit').textContent = '--';
             }
+
+            // Auto-zoom based on speed
+            handleAutoZoom(speedMph);
 
             // Heading
             let heading = currentLocation.heading;

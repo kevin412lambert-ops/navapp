@@ -7,8 +7,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Road Trip Telemetry</title>
 
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- MapLibre GL JS CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
 
     <style>
         * {
@@ -630,6 +630,57 @@
                         </select>
                     </div>
                 </div>
+
+                <!-- Style Customization Editor -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header" style="cursor: pointer; user-select: none;" onclick="toggleStyleEditor()">
+                        🎨 Customize Colors
+                        <span id="style-editor-toggle" style="float: right;">▼</span>
+                    </div>
+                    <div id="style-editor-content" style="display: none; padding: 12px;">
+                        <!-- Roads -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Roads</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Highways:</label>
+                                <input type="color" id="color-highway" value="#FFA500" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Major Roads:</label>
+                                <input type="color" id="color-primary" value="#FFDD88" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                        </div>
+
+                        <!-- Buildings -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Buildings</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Fill Color:</label>
+                                <input type="color" id="color-building" value="#E4DCD0" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                        </div>
+
+                        <!-- Water -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Water</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Water Bodies:</label>
+                                <input type="color" id="color-water" value="#B0D0D6" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 11px; color: #ccc;">Rivers:</label>
+                                <input type="color" id="color-waterway" value="#CCE7EA" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div style="display: flex; gap: 6px; margin-top: 15px;">
+                            <button onclick="applyCustomStyle()" style="flex: 1; padding: 8px; background: #f97316; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">Apply</button>
+                            <button onclick="saveCustomStyle()" style="padding: 8px 12px; background: #2a2a2a; color: #f97316; border: 1px solid #f97316; border-radius: 4px; cursor: pointer; font-size: 12px;">Save</button>
+                            <button onclick="resetStyle()" style="padding: 8px 12px; background: #2a2a2a; color: #ccc; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-size: 12px;">Reset</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Panel: Map -->
@@ -649,8 +700,8 @@
         </div>
     </div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
     <script>
         // ==================== PASSWORD PROTECTION ====================
@@ -706,7 +757,6 @@
         let map = null;
         let userMarker = null;
         let exitMarkers = [];
-        let radarLayer = null;
 
         let currentLocation = null;
         let previousLocation = null;
@@ -757,6 +807,7 @@
             initRadarOpacitySlider();
             initMapZoomSlider();
             initMapStyleSelector();
+            loadSavedColors();
         }
 
         function initRadarOpacitySlider() {
@@ -771,8 +822,8 @@
                 valueDisplay.textContent = `${e.target.value}%`;
 
                 // Update radar layer opacity if it exists
-                if (radarLayer) {
-                    radarLayer.setOpacity(opacity);
+                if (map.getLayer('radar-layer')) {
+                    map.setPaintProperty('radar-layer', 'raster-opacity', opacity);
                 }
             });
 
@@ -783,8 +834,8 @@
                 slider.value = newValue;
                 valueDisplay.textContent = `${newValue}%`;
 
-                if (radarLayer) {
-                    radarLayer.setOpacity(newValue / 100);
+                if (map.getLayer('radar-layer')) {
+                    map.setPaintProperty('radar-layer', 'raster-opacity', newValue / 100);
                 }
             });
 
@@ -795,8 +846,8 @@
                 slider.value = newValue;
                 valueDisplay.textContent = `${newValue}%`;
 
-                if (radarLayer) {
-                    radarLayer.setOpacity(newValue / 100);
+                if (map.getLayer('radar-layer')) {
+                    map.setPaintProperty('radar-layer', 'raster-opacity', newValue / 100);
                 }
             });
         }
@@ -865,63 +916,51 @@
                 // Save preference
                 localStorage.setItem('map_style', newStyle);
 
-                // Get new style configuration
-                const styleConfig = mapStyles[newStyle];
+                // Change map style
+                map.setStyle(getVectorStyleURL(newStyle));
 
-                // Remove old base layer
-                if (baseLayer && map) {
-                    map.removeLayer(baseLayer);
-                }
-
-                // Add new base layer
-                baseLayer = L.tileLayer(styleConfig.url, {
-                    attribution: styleConfig.attribution,
-                    maxZoom: 19
-                }).addTo(map);
+                // Re-add radar after style loads
+                map.once('styledata', () => {
+                    loadRadar();
+                });
 
                 console.log(`Map style changed to: ${newStyle}`);
             });
         }
 
-        // Store base tile layer globally so we can swap it
-        let baseLayer = null;
-
-        // Map style configurations
-        const mapStyles = {
-            voyager: {
-                url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                attribution: '© OpenStreetMap © CARTO'
-            },
-            dark: {
-                url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                attribution: '© OpenStreetMap © CARTO'
-            },
-            satellite: {
-                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                attribution: '© Esri'
-            },
-            osm: {
-                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                attribution: '© OpenStreetMap'
-            }
-        };
+        // Get vector style URL for MapLibre GL JS
+        function getVectorStyleURL(styleName) {
+            const styles = {
+                voyager: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+                dark: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+                satellite: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+                osm: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
+            };
+            return styles[styleName] || styles.voyager;
+        }
 
         function initMap() {
-            map = L.map('map', {
-                center: [37.7749, -122.4194],
+            map = new maplibregl.Map({
+                container: 'map',
+                style: getVectorStyleURL(localStorage.getItem('map_style') || 'voyager'),
+                center: [-122.4194, 37.7749], // [lng, lat] - REVERSED from Leaflet!
                 zoom: 18,
-                zoomControl: false,
                 attributionControl: false
             });
 
-            // Load saved style preference or default to voyager
-            const savedStyle = localStorage.getItem('map_style') || 'voyager';
-            const styleConfig = mapStyles[savedStyle];
+            map.on('load', () => {
+                console.log('Map loaded successfully');
+                loadRadar(); // Add radar after style loads
+            });
 
-            baseLayer = L.tileLayer(styleConfig.url, {
-                attribution: styleConfig.attribution,
-                maxZoom: 19
-            }).addTo(map);
+            // Update zoom slider when map zooms
+            map.on('zoomend', () => {
+                const zoom = Math.round(map.getZoom());
+                const slider = document.getElementById('map-zoom-slider');
+                const valueDisplay = document.getElementById('map-zoom-value');
+                if (slider) slider.value = zoom;
+                if (valueDisplay) valueDisplay.textContent = zoom;
+            });
         }
 
         function initGPS() {
@@ -1070,7 +1109,7 @@
 
                     if (newPosition) {
                         // Update marker position
-                        userMarker.setLatLng([newPosition.lat, newPosition.lng]);
+                        userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
 
                         // Update cache
                         roadGeometryCache.currentPosition = newPosition;
@@ -1084,11 +1123,11 @@
 
                 // Fallback: straight-line extrapolation if no road geometry
                 if (currentVelocity.lat !== 0 || currentVelocity.lng !== 0) {
-                    const currentPos = userMarker.getLatLng();
+                    const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
                     const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
                     const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
 
-                    userMarker.setLatLng([lat, lng]);
+                    userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
                     isExtrapolating = true;
                     markerAnimation = requestAnimationFrame(animate);
                 }
@@ -1104,7 +1143,7 @@
                 markerAnimation = null;
             }
 
-            const currentPos = userMarker.getLatLng();
+            const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
             const startLat = currentPos.lat;
             const startLng = currentPos.lng;
             const startTime = performance.now();
@@ -1117,7 +1156,7 @@
                 const lat = startLat + (targetLat - startLat) * easeProgress;
                 const lng = startLng + (targetLng - startLng) * easeProgress;
 
-                userMarker.setLatLng([lat, lng]);
+                userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
 
                 if (progress < 1) {
                     markerAnimation = requestAnimationFrame(animate);
@@ -1160,7 +1199,7 @@
 
             if (userMarker) {
                 // Get current marker position
-                const currentLatLng = userMarker.getLatLng();
+                const currentLatLng = userMarker.getLngLat(); // Returns {lng, lat}
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
@@ -1191,7 +1230,7 @@
                     // Only do hard correction if VERY far off (>50m), otherwise let animation catch up
                     if (distanceFromMarkerToMatched > 0.0003) {
                         // More than ~30m off - instant correction (probably GPS jumped or changed roads)
-                        userMarker.setLatLng([matchedPosition.lat, matchedPosition.lng]);
+                        userMarker.setLngLat([matchedPosition.lng, matchedPosition.lat]); // [lng, lat] - REVERSED!
                     }
                     // Otherwise, just let the animation naturally move toward the new position
 
@@ -1212,16 +1251,25 @@
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 
-                userMarker = L.circleMarker([initialLat, initialLng], {
-                    radius: 10,
-                    fillColor: '#4285F4',
-                    color: '#ffffff',
-                    weight: 3,
-                    opacity: 1,
-                    fillOpacity: 0.9
-                }).addTo(map);
+                // Create custom marker element for MapLibre
+                const markerEl = document.createElement('div');
+                markerEl.className = 'user-marker';
+                markerEl.style.width = '20px';
+                markerEl.style.height = '20px';
+                markerEl.style.borderRadius = '50%';
+                markerEl.style.backgroundColor = '#4285F4';
+                markerEl.style.border = '3px solid #ffffff';
+                markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
 
-                map.setView([initialLat, initialLng], 15);
+                userMarker = new maplibregl.Marker({
+                    element: markerEl,
+                    anchor: 'center'
+                })
+                .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
+                .addTo(map);
+
+                // Center map on initial position
+                map.jumpTo({center: [initialLng, initialLat], zoom: 15}); // [lng, lat] - REVERSED!
 
                 if (matchedPosition) {
                     roadGeometryCache.currentPosition = matchedPosition;
@@ -1237,7 +1285,7 @@
             // Re-center map smoothly
             const targetLat = matchedPosition ? matchedPosition.lat : newLat;
             const targetLng = matchedPosition ? matchedPosition.lng : newLng;
-            map.panTo([targetLat, targetLng]);
+            map.easeTo({center: [targetLng, targetLat], duration: 500}); // [lng, lat] - REVERSED!
         }
 
         // ==================== ROAD INFO QUERY ====================
@@ -2035,28 +2083,42 @@
                 const latestFrame = data.radar.past[data.radar.past.length - 1];
 
                 // Construct tile URL
-                // Format: {host}{path}/{tileSize}/{z}/{x}/{y}/{color}/{options}.{extension}
                 const tileUrl = `${data.host}${latestFrame.path}/256/{z}/{x}/{y}/6/1_1.png`;
 
-                // Remove existing radar layer if present
-                if (radarLayer) {
-                    map.removeLayer(radarLayer);
+                // Remove existing radar layer/source if present
+                if (map.getLayer('radar-layer')) {
+                    map.removeLayer('radar-layer');
                 }
+                if (map.getSource('radar')) {
+                    map.removeSource('radar');
+                }
+
+                // Add radar source
+                map.addSource('radar', {
+                    type: 'raster',
+                    tiles: [tileUrl],
+                    tileSize: 256,
+                    minzoom: 0,
+                    maxzoom: 8  // RainViewer provides tiles up to zoom 8
+                });
 
                 // Get current opacity from slider
                 const slider = document.getElementById('radar-opacity-slider');
                 const currentOpacity = slider ? slider.value / 100 : 0.6;
 
-                // Add new radar layer with extended zoom range
-                radarLayer = L.tileLayer(tileUrl, {
-                    tileSize: 256,
-                    opacity: currentOpacity,
-                    zIndex: 10,
-                    attribution: 'Radar data © RainViewer',
-                    minZoom: 0,
-                    maxZoom: 19,          // Display up to zoom 19
-                    maxNativeZoom: 8      // RainViewer provides tiles up to zoom 8, scale beyond that
-                }).addTo(map);
+                // Find first symbol layer (for proper stacking above terrain, below labels)
+                const layers = map.getStyle().layers;
+                const firstSymbolLayer = layers.find(l => l.type === 'symbol');
+
+                // Add radar layer
+                map.addLayer({
+                    id: 'radar-layer',
+                    type: 'raster',
+                    source: 'radar',
+                    paint: {
+                        'raster-opacity': currentOpacity
+                    }
+                }, firstSymbolLayer ? firstSymbolLayer.id : undefined);
 
                 console.log('Radar overlay loaded successfully');
             } catch (error) {
@@ -2224,7 +2286,7 @@
                 exitsList.innerHTML = '<div class="no-data">No exits within 0.5 miles</div>';
 
                 // Clear markers
-                exitMarkers.forEach(marker => map.removeLayer(marker));
+                exitMarkers.forEach(marker => marker.remove());
                 exitMarkers = [];
                 return;
             }
@@ -2266,7 +2328,7 @@
             exitsList.innerHTML = html;
 
             // Update map markers
-            exitMarkers.forEach(marker => map.removeLayer(marker));
+            exitMarkers.forEach(marker => marker.remove());
             exitMarkers = [];
 
             nearbyExits.slice(0, 5).forEach(exit => {
@@ -2275,18 +2337,165 @@
                 const color = isExit ? '#f97316' : '#10b981';  // Orange for exits, green for entrances
                 const label = isExit ? 'Exit' : 'Entrance';
 
-                const marker = L.circleMarker([exit.lat, exit.lng], {
-                    radius: 6,
-                    fillColor: color,
-                    color: '#ffffff',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.9
-                }).addTo(map);
+                // Create custom marker element for MapLibre
+                const exitEl = document.createElement('div');
+                exitEl.className = 'exit-marker';
+                exitEl.style.width = '12px';
+                exitEl.style.height = '12px';
+                exitEl.style.borderRadius = '50%';
+                exitEl.style.backgroundColor = color;
+                exitEl.style.border = '2px solid #ffffff';
+                exitEl.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
+                exitEl.style.cursor = 'pointer';
 
-                marker.bindPopup(`<strong>${label}: ${exit.name}</strong><br>${exit.distance.toFixed(2)} mi`);
+                const marker = new maplibregl.Marker({
+                    element: exitEl,
+                    anchor: 'center'
+                })
+                .setLngLat([exit.lng, exit.lat]) // [lng, lat] - REVERSED!
+                .setPopup(
+                    new maplibregl.Popup({offset: 15})
+                    .setHTML(`<strong>${label}: ${exit.name}</strong><br>${exit.distance.toFixed(2)} mi`)
+                )
+                .addTo(map);
+
                 exitMarkers.push(marker);
             });
+        }
+
+        // ==================== STYLE CUSTOMIZATION ====================
+        function toggleStyleEditor() {
+            const content = document.getElementById('style-editor-content');
+            const toggle = document.getElementById('style-editor-toggle');
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▲';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▼';
+            }
+        }
+
+        async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
+            try {
+                const response = await fetch(baseStyleURL);
+                const styleJSON = await response.json();
+
+                // Find and modify layers
+                styleJSON.layers.forEach(layer => {
+                    if (!layer.paint) return;
+
+                    // Modify highway colors
+                    if (layer.id.includes('road_mot') || layer.id.includes('motorway')) {
+                        if (layer.paint['line-color']) {
+                            layer.paint['line-color'] = customColors.highway;
+                        }
+                    }
+
+                    // Modify primary road colors
+                    if (layer.id.includes('road_pri') || layer.id.includes('primary')) {
+                        if (layer.paint['line-color']) {
+                            layer.paint['line-color'] = customColors.primary;
+                        }
+                    }
+
+                    // Modify building colors
+                    if (layer.id === 'building' || layer.id === 'building-top') {
+                        if (layer.paint['fill-color']) {
+                            layer.paint['fill-color'] = customColors.building;
+                        }
+                    }
+
+                    // Modify water colors
+                    if (layer.id === 'water') {
+                        if (layer.paint['fill-color']) {
+                            layer.paint['fill-color'] = customColors.water;
+                        }
+                    }
+
+                    // Modify waterway colors
+                    if (layer.id === 'waterway') {
+                        if (layer.paint['line-color']) {
+                            layer.paint['line-color'] = customColors.waterway;
+                        }
+                    }
+                });
+
+                return styleJSON;
+            } catch (error) {
+                console.error('Style fetch error:', error);
+                throw error;
+            }
+        }
+
+        async function applyCustomStyle() {
+            const customColors = {
+                highway: document.getElementById('color-highway').value,
+                primary: document.getElementById('color-primary').value,
+                building: document.getElementById('color-building').value,
+                water: document.getElementById('color-water').value,
+                waterway: document.getElementById('color-waterway').value
+            };
+
+            const currentStyle = localStorage.getItem('map_style') || 'voyager';
+            const baseStyleURL = getVectorStyleURL(currentStyle);
+
+            try {
+                const customStyleJSON = await fetchAndCustomizeStyle(baseStyleURL, customColors);
+                map.setStyle(customStyleJSON);
+
+                map.once('styledata', () => {
+                    loadRadar();
+                });
+
+                console.log('Custom style applied');
+            } catch (error) {
+                alert('Failed to apply custom style');
+            }
+        }
+
+        function saveCustomStyle() {
+            const customColors = {
+                highway: document.getElementById('color-highway').value,
+                primary: document.getElementById('color-primary').value,
+                building: document.getElementById('color-building').value,
+                water: document.getElementById('color-water').value,
+                waterway: document.getElementById('color-waterway').value
+            };
+
+            localStorage.setItem('custom_style_colors', JSON.stringify(customColors));
+            alert('Custom colors saved!');
+        }
+
+        function resetStyle() {
+            // Reset to defaults
+            document.getElementById('color-highway').value = '#FFA500';
+            document.getElementById('color-primary').value = '#FFDD88';
+            document.getElementById('color-building').value = '#E4DCD0';
+            document.getElementById('color-water').value = '#B0D0D6';
+            document.getElementById('color-waterway').value = '#CCE7EA';
+
+            // Reload base style
+            const currentStyle = localStorage.getItem('map_style') || 'voyager';
+            map.setStyle(getVectorStyleURL(currentStyle));
+
+            map.once('styledata', () => {
+                loadRadar();
+            });
+        }
+
+        // Load saved custom colors on init
+        function loadSavedColors() {
+            const saved = localStorage.getItem('custom_style_colors');
+            if (saved) {
+                const colors = JSON.parse(saved);
+                document.getElementById('color-highway').value = colors.highway;
+                document.getElementById('color-primary').value = colors.primary;
+                document.getElementById('color-building').value = colors.building;
+                document.getElementById('color-water').value = colors.water;
+                document.getElementById('color-waterway').value = colors.waterway;
+            }
         }
 
         // ==================== UTILITIES ====================

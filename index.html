@@ -2462,9 +2462,16 @@
 
         // Helper: Create gradient expression for MapLibre
         function createGradientExpression(baseColor, gradientColor) {
-            // Use the gradient color directly for maximum visibility
-            // Buildings will use baseColor (no gradient)
-            return gradientColor;
+            // Create a smooth transition around the default zoom level (18)
+            // This makes the gradient visible as you zoom in/out
+            return [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                16, baseColor,
+                18, gradientColor,
+                20, baseColor
+            ];
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
@@ -2498,8 +2505,9 @@
                     // Modify highway colors with gradient
                     if (layer.id.includes('road_mot') || layer.id.includes('motorway')) {
                         if (layer.paint['line-color']) {
+                            const oldColor = layer.paint['line-color'];
                             layer.paint['line-color'] = createGradientExpression(customColors.highway, highwayGradient);
-                            modifiedLayers.push(layer.id + ' (highway)');
+                            modifiedLayers.push(layer.id + ' (highway): ' + JSON.stringify(oldColor).substring(0, 50) + ' -> gradient');
                         }
                     }
 

@@ -1650,10 +1650,13 @@
                     }
 
                     // Determine if this is an exit (off-ramp) or entrance (on-ramp)
-                    // Exits typically have destination tags, entrances don't
-                    const isExit = !!(element.tags.destination ||
-                                      element.tags['destination:ref'] ||
-                                      element.tags['destination:street']);
+                    // motorway_junction nodes are ALWAYS exits (leaving the motorway)
+                    // Only mark as entrance if explicitly tagged as such
+                    const isEntrance = element.tags.highway === 'motorway_link' &&
+                                      !element.tags.destination &&
+                                      !element.tags['destination:ref'] &&
+                                      !element.tags['destination:street'];
+                    const isExit = !isEntrance;  // Default to exit for motorway_junction nodes
 
                     return {
                         id: element.id,
@@ -1872,12 +1875,15 @@
                 const slider = document.getElementById('radar-opacity-slider');
                 const currentOpacity = slider ? slider.value / 100 : 0.6;
 
-                // Add new radar layer
+                // Add new radar layer with extended zoom range
                 radarLayer = L.tileLayer(tileUrl, {
                     tileSize: 256,
                     opacity: currentOpacity,
                     zIndex: 10,
-                    attribution: 'Radar data © RainViewer'
+                    attribution: 'Radar data © RainViewer',
+                    minZoom: 0,
+                    maxZoom: 19,          // Display up to zoom 19
+                    maxNativeZoom: 12     // RainViewer provides tiles up to zoom 12, scale beyond that
                 }).addTo(map);
 
                 console.log('Radar overlay loaded successfully');

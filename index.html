@@ -2458,8 +2458,15 @@
 
         // Helper: Create gradient expression for MapLibre
         function createGradientExpression(baseColor, gradientColor) {
-            // Use the gradient color directly to make the effect more visible
-            return gradientColor;
+            // Create a zoom-based interpolation that's visible at typical zoom levels (15-19)
+            return [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                15, baseColor,
+                17, gradientColor,
+                19, baseColor
+            ];
         }
 
         async function fetchAndCustomizeStyle(baseStyleURL, customColors) {
@@ -2475,6 +2482,15 @@
                 const waterwayGradient = generateGradientColor(customColors.waterway);
                 const backgroundGradient = generateGradientColor(customColors.background);
 
+                console.log('Applying custom colors with gradients:', {
+                    highway: customColors.highway + ' -> ' + highwayGradient,
+                    primary: customColors.primary + ' -> ' + primaryGradient,
+                    street: customColors.street + ' -> ' + streetGradient,
+                    water: customColors.water + ' -> ' + waterGradient
+                });
+
+                let modifiedLayers = [];
+
                 // Find and modify layers
                 styleJSON.layers.forEach(layer => {
                     if (!layer.paint) return;
@@ -2483,6 +2499,7 @@
                     if (layer.id.includes('road_mot') || layer.id.includes('motorway')) {
                         if (layer.paint['line-color']) {
                             layer.paint['line-color'] = createGradientExpression(customColors.highway, highwayGradient);
+                            modifiedLayers.push(layer.id + ' (highway)');
                         }
                     }
 
@@ -2490,6 +2507,7 @@
                     if (layer.id.includes('road_pri') || layer.id.includes('primary')) {
                         if (layer.paint['line-color']) {
                             layer.paint['line-color'] = createGradientExpression(customColors.primary, primaryGradient);
+                            modifiedLayers.push(layer.id + ' (primary)');
                         }
                     }
 
@@ -2500,6 +2518,7 @@
                         layer.id.includes('road_min') || layer.id.includes('minor')) {
                         if (layer.paint['line-color']) {
                             layer.paint['line-color'] = createGradientExpression(customColors.street, streetGradient);
+                            modifiedLayers.push(layer.id + ' (street)');
                         }
                     }
 
@@ -2507,6 +2526,7 @@
                     if (layer.id === 'building' || layer.id === 'building-top') {
                         if (layer.paint['fill-color']) {
                             layer.paint['fill-color'] = customColors.building;
+                            modifiedLayers.push(layer.id + ' (building)');
                         }
                     }
 
@@ -2514,6 +2534,7 @@
                     if (layer.id === 'water') {
                         if (layer.paint['fill-color']) {
                             layer.paint['fill-color'] = createGradientExpression(customColors.water, waterGradient);
+                            modifiedLayers.push(layer.id + ' (water)');
                         }
                     }
 
@@ -2521,6 +2542,7 @@
                     if (layer.id === 'waterway') {
                         if (layer.paint['line-color']) {
                             layer.paint['line-color'] = createGradientExpression(customColors.waterway, waterwayGradient);
+                            modifiedLayers.push(layer.id + ' (waterway)');
                         }
                     }
 
@@ -2529,9 +2551,11 @@
                         layer.id === 'land' || layer.id.includes('landuse')) {
                         if (layer.paint['background-color']) {
                             layer.paint['background-color'] = createGradientExpression(customColors.background, backgroundGradient);
+                            modifiedLayers.push(layer.id + ' (background-color)');
                         }
                         if (layer.paint['fill-color']) {
                             layer.paint['fill-color'] = createGradientExpression(customColors.background, backgroundGradient);
+                            modifiedLayers.push(layer.id + ' (background-fill)');
                         }
                     }
 
@@ -2611,6 +2635,9 @@
                         }
                     }
                 });
+
+                console.log('Modified layers:', modifiedLayers);
+                console.log('Total layers modified:', modifiedLayers.length);
 
                 return styleJSON;
             } catch (error) {

@@ -1981,6 +1981,10 @@
             renderingMode: '3d',
 
             onAdd: function(map, gl) {
+                console.log('=== 3D Layer onAdd Called ===');
+                console.log('Map:', map);
+                console.log('GL context:', gl);
+
                 // Initialize Three.js scene
                 this.camera = new window.THREE.Camera();
                 this.scene = new window.THREE.Scene();
@@ -2005,6 +2009,9 @@
                 threeJsScene = this.scene;
                 threeJsCamera = this.camera;
                 threeJsRenderer = this.renderer;
+
+                console.log('Three.js scene initialized:', this.scene);
+                console.log('Scene children (lights):', this.scene.children.length);
             },
 
             render: function(gl, matrix) {
@@ -2213,7 +2220,16 @@
             }
 
             // Add custom 3D layer to map
-            map.addLayer(customLayer3D);
+            console.log('Adding 3D layer to map...');
+            console.log('Layer object:', customLayer3D);
+            console.log('Map has layer already?', map.getLayer('3d-model-layer'));
+
+            if (!map.getLayer('3d-model-layer')) {
+                map.addLayer(customLayer3D);
+                console.log('3D layer added to map');
+            } else {
+                console.log('3D layer already exists on map');
+            }
 
             // Load and add model
             await loadAndDisplayModel(currentModelKey, lng, lat);

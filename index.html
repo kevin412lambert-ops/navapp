@@ -2668,11 +2668,12 @@
                 const url = `https://api.open-meteo.com/v1/forecast?` +
                     `latitude=${currentLocation.lat}&` +
                     `longitude=${currentLocation.lng}&` +
-                    `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&` +
+                    `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation&` +
                     `daily=sunrise,sunset&` +
                     `timezone=auto&` +
                     `temperature_unit=fahrenheit&` +
-                    `wind_speed_unit=mph`;
+                    `wind_speed_unit=mph&` +
+                    `precipitation_unit=inch`;
 
                 const response = await fetch(url);
                 if (!response.ok) return;
@@ -2688,6 +2689,7 @@
                     windSpeed: current.wind_speed_10m,
                     windGust: current.wind_gusts_10m,
                     windDirection: current.wind_direction_10m,
+                    precipitation: current.precipitation || 0,
                     condition: getWeatherCondition(current.weather_code),
                     sunrise: daily.sunrise[0],  // Today's sunrise (ISO 8601 format)
                     sunset: daily.sunset[0]     // Today's sunset (ISO 8601 format)
@@ -2695,8 +2697,9 @@
 
                 updateWeatherDisplay();
 
-                // Update rain animation based on weather code
-                updateRainAnimation(current.weather_code);
+                // Update rain animation based on weather code and precipitation
+                console.log('Weather code:', current.weather_code, 'Precipitation:', current.precipitation, 'Condition:', weatherData.condition);
+                updateRainAnimation(current.weather_code, current.precipitation);
 
                 console.log('Weather updated:', weatherData);
             } catch (error) {
@@ -4139,12 +4142,20 @@
         // Show rain animation
         function showRain() {
             const rainOverlay = document.getElementById('rain-overlay');
+            console.log('showRain called, rainOverlay found:', !!rainOverlay);
+
+            if (!rainOverlay) {
+                console.error('rain-overlay element not found!');
+                return;
+            }
 
             // Only show if not already active
             if (!rainOverlay.classList.contains('active')) {
                 rainOverlay.classList.add('active');
                 createRaindrops();
-                console.log('Rain animation started');
+                console.log('Rain animation started - droplets created');
+            } else {
+                console.log('Rain animation already active');
             }
         }
 
@@ -4160,16 +4171,20 @@
             }
         }
 
-        // Update rain animation based on weather code
-        function updateRainAnimation(weatherCode) {
-            if (weatherCode !== null && weatherCode !== undefined) {
-                if (isRainingWeatherCode(weatherCode)) {
-                    showRain();
-                } else {
-                    hideRain();
-                }
+        // Update rain animation based on weather code and precipitation
+        function updateRainAnimation(weatherCode, precipitation) {
+            console.log('updateRainAnimation called with code:', weatherCode, 'precipitation:', precipitation);
+
+            // Check if it's raining based on weather code OR precipitation
+            const isRainingByCode = weatherCode !== null && weatherCode !== undefined && isRainingWeatherCode(weatherCode);
+            const isRainingByPrecip = precipitation !== null && precipitation !== undefined && precipitation > 0;
+            const isRaining = isRainingByCode || isRainingByPrecip;
+
+            console.log('Is raining by code:', isRainingByCode, 'by precipitation:', isRainingByPrecip, 'final:', isRaining);
+
+            if (isRaining) {
+                showRain();
             } else {
-                // No weather data - hide rain
                 hideRain();
             }
         }

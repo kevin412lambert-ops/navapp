@@ -2050,6 +2050,11 @@
                 // Use MapLibre's projection matrix so objects follow the map
                 this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
 
+                // Set camera matrices required by Three.js
+                this.camera.matrixWorldInverse = new window.THREE.Matrix4();
+                this.camera.projectionMatrixInverse = new window.THREE.Matrix4();
+                this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+
                 // Handle smooth position animation
                 if (targetModelPosition && currentModelPosition && activeModel) {
                     const now = performance.now();

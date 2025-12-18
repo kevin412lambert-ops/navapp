@@ -1133,6 +1133,7 @@
         let targetModelPosition = null;
         let currentModelPosition = null;
         let modelPositionAnimationStart = null;
+        let renderDebugLogged = false;
 
         // Speed limit caching
         let speedLimitCache = {
@@ -2007,6 +2008,18 @@
             },
 
             render: function(gl, matrix) {
+                // Debug logging (once)
+                if (!renderDebugLogged && activeModel) {
+                    console.log('=== 3D Render Debug ===');
+                    console.log('Active model:', activeModel);
+                    console.log('Model position:', activeModel.position);
+                    console.log('Model scale:', activeModel.scale);
+                    console.log('Model rotation:', activeModel.rotation);
+                    console.log('Scene children count:', this.scene.children.length);
+                    console.log('Scene children:', this.scene.children);
+                    renderDebugLogged = true;
+                }
+
                 // Update camera with MapLibre's projection matrix
                 this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
 
@@ -2063,18 +2076,25 @@
         // Load STL file
         async function loadSTLModel(modelKey) {
             try {
+                console.log('loadSTLModel - Starting for:', modelKey);
+                console.log('Model path:', modelPaths[modelKey]);
                 showModelLoadingIndicator(true);
 
                 // Wait for STLLoader to be available
+                console.log('Waiting for STLLoader...');
                 await waitForSTLLoader();
+                console.log('STLLoader ready:', !!window.STLLoader);
 
                 const loader = new window.STLLoader();
+                console.log('STLLoader instance created, loading file...');
                 const geometry = await loader.loadAsync(modelPaths[modelKey]);
+                console.log('Geometry loaded:', geometry);
 
                 showModelLoadingIndicator(false);
                 return geometry;
             } catch (error) {
                 console.error('Failed to load model:', error);
+                console.error('Error details:', error.message, error.stack);
                 showModelLoadingIndicator(false);
                 alert('Failed to load 3D model. Reverting to simple marker.');
                 const selector = document.getElementById('model-selector');
@@ -2125,15 +2145,20 @@
 
         // Update 3D model position
         function update3DModelPosition(lng, lat) {
-            if (!activeModel) return;
+            if (!activeModel) {
+                console.log('update3DModelPosition: No active model');
+                return;
+            }
 
             const pos = lngLatToModelSpace(lng, lat);
+            console.log('update3DModelPosition:', lng, lat, '->', pos);
 
             // Set target for smooth animation
             targetModelPosition = pos;
             if (!currentModelPosition) {
                 currentModelPosition = pos;
                 activeModel.position.set(pos.x, pos.y, pos.z);
+                console.log('Model position set to:', activeModel.position);
             } else {
                 modelPositionAnimationStart = performance.now();
             }
@@ -2192,29 +2217,43 @@
 
         // Load and display a model
         async function loadAndDisplayModel(modelKey, lng, lat) {
+            console.log('loadAndDisplayModel called:', modelKey, lng, lat);
+            console.log('threeJsScene exists:', !!threeJsScene);
+
             // Check cache first
             if (modelCache[modelKey]) {
+                console.log('Using cached model:', modelKey);
                 activeModel = modelCache[modelKey];
                 threeJsScene.add(activeModel);
             } else {
                 // Load STL
+                console.log('Loading STL model:', modelKey);
                 const geometry = await loadSTLModel(modelKey);
-                if (!geometry) return; // Error handled in loadSTLModel
+                if (!geometry) {
+                    console.error('Failed to load geometry');
+                    return; // Error handled in loadSTLModel
+                }
 
+                console.log('STL loaded successfully, creating mesh');
                 // Create mesh
                 const mesh = createMeshFromGeometry(geometry);
+                console.log('Mesh created:', mesh);
                 modelCache[modelKey] = mesh;
                 activeModel = mesh;
                 threeJsScene.add(mesh);
+                console.log('Mesh added to scene');
             }
 
             // Position model
+            console.log('Setting model position:', lng, lat);
             update3DModelPosition(lng, lat);
 
             // Set initial rotation
             if (currentLocation && currentLocation.heading) {
                 update3DModelRotation(currentLocation.heading);
             }
+
+            console.log('Model setup complete, activeModel:', activeModel);
         }
 
         // Switch between models

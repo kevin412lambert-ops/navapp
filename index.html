@@ -851,6 +851,21 @@
                     </div>
                 </div>
 
+                <!-- 3D Vehicle Model Selector -->
+                <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">3D Vehicle Model</div>
+                    <div style="padding: 12px;">
+                        <select id="model-selector" style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                            <option value="old_truck">🚚 Old Truck</option>
+                            <option value="atv">🏍️ ATV</option>
+                            <option value="none">🔵 Simple Dot</option>
+                        </select>
+                        <div id="model-loading-status" style="font-size: 11px; color: #f97316; margin-top: 8px; display: none;">
+                            Loading model...
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 3D Perspective View Controls -->
                 <div class="exits-section" style="margin-top: 15px;">
                     <div class="exits-header">View Mode</div>
@@ -974,6 +989,15 @@
     <!-- MapLibre GL JS -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
+    <!-- Three.js Core Library -->
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+
+    <!-- STL Loader (ES6 Module) -->
+    <script type="module">
+        import { STLLoader } from 'https://unpkg.com/three@0.158.0/examples/jsm/loaders/STLLoader.js';
+        window.STLLoader = STLLoader; // Make globally available
+    </script>
+
     <script>
         // ==================== PASSWORD PROTECTION ====================
         const CORRECT_PASSWORD = 'TripX9k2'; // Random access password
@@ -1078,6 +1102,23 @@
         const SMOOTHING_FACTOR = 0.3; // Default smoothing factor (0=max smooth, 1=no smooth)
         let stationaryStartTime = null; // Track stationary duration
 
+        // 3D Model State
+        let customLayer3D = null;
+        let threeJsScene = null;
+        let threeJsCamera = null;
+        let threeJsRenderer = null;
+        let activeModel = null;
+        let currentModelKey = 'old_truck'; // Default model
+        let modelCache = {}; // { 'old_truck': mesh, 'atv': mesh }
+        let modelPaths = {
+            'old_truck': '3d_models/Old_Truck.stl',
+            'atv': '3d_models/ATV.stl'
+        };
+        // Animation state for smooth position updates
+        let targetModelPosition = null;
+        let currentModelPosition = null;
+        let modelPositionAnimationStart = null;
+
         // Speed limit caching
         let speedLimitCache = {
             value: null,        // Cached speed limit in mph
@@ -1117,6 +1158,7 @@
             initMapZoomSlider();
             initMapStyleSelector();
             initVehicleTypeSelector();
+            initModelSelector();
             initPerspectiveControls();
             initTextSizeSlider();
             loadSavedColors();
@@ -1396,6 +1438,40 @@
                 if (currentLocation) {
                     checkNearbyOverpasses(currentLocation.lat, currentLocation.lng);
                 }
+            });
+        }
+
+        function initModelSelector() {
+            const selector = document.getElementById('model-selector');
+
+            // Load saved preference
+            const savedModel = localStorage.getItem('selected_model') || 'old_truck';
+            selector.value = savedModel;
+
+            // Handle change
+            selector.addEventListener('change', async (e) => {
+                const newModel = e.target.value;
+                console.log(`Model changed to: ${newModel}`);
+
+                if (newModel === 'none') {
+                    await switch3DToSimpleMarker();
+                } else {
+                    // If switching from simple marker to 3D model
+                    if (!activeModel && userMarker) {
+                        // Remove simple marker first
+                        userMarker.remove();
+                        userMarker = null;
+
+                        // Add 3D layer if not present
+                        if (!map.getLayer('3d-model-layer')) {
+                            map.addLayer(customLayer3D);
+                        }
+                    }
+
+                    await switchModel(newModel);
+                }
+
+                localStorage.setItem('selected_model', newModel);
             });
         }
 
@@ -1880,6 +1956,306 @@
             return smoothedLocation;
         }
 
+        // ==================== 3D MODEL SYSTEM ====================
+
+        // Custom MapLibre layer for rendering 3D models
+        customLayer3D = {
+            id: '3d-model-layer',
+            type: 'custom',
+            renderingMode: '3d',
+
+            onAdd: function(map, gl) {
+                // Initialize Three.js scene
+                this.camera = new THREE.Camera();
+                this.scene = new THREE.Scene();
+
+                // Use MapLibre's WebGL context
+                this.renderer = new THREE.WebGLRenderer({
+                    canvas: map.getCanvas(),
+                    context: gl,
+                    antialias: true
+                });
+                this.renderer.autoClear = false;
+
+                // Add lighting for model visibility
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                this.scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(0, -70, 100).normalize();
+                this.scene.add(directionalLight);
+
+                this.map = map;
+                threeJsScene = this.scene;
+                threeJsCamera = this.camera;
+                threeJsRenderer = this.renderer;
+            },
+
+            render: function(gl, matrix) {
+                // Update camera with MapLibre's projection matrix
+                this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix);
+
+                // Handle smooth position animation
+                if (targetModelPosition && currentModelPosition && activeModel) {
+                    const now = performance.now();
+                    if (!modelPositionAnimationStart) {
+                        modelPositionAnimationStart = now;
+                    }
+
+                    const elapsed = now - modelPositionAnimationStart;
+                    const progress = Math.min(elapsed / 500, 1); // 500ms animation
+                    const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+
+                    // Interpolate position
+                    const x = currentModelPosition.x + (targetModelPosition.x - currentModelPosition.x) * easeProgress;
+                    const y = currentModelPosition.y + (targetModelPosition.y - currentModelPosition.y) * easeProgress;
+                    const z = currentModelPosition.z + (targetModelPosition.z - currentModelPosition.z) * easeProgress;
+
+                    activeModel.position.set(x, y, z);
+
+                    if (progress >= 1) {
+                        currentModelPosition = { ...targetModelPosition };
+                        targetModelPosition = null;
+                        modelPositionAnimationStart = null;
+                    }
+                }
+
+                // Render Three.js scene
+                this.renderer.state.reset();
+                this.renderer.render(this.scene, this.camera);
+                this.map.triggerRepaint();
+            },
+
+            onRemove: function() {
+                // Cleanup Three.js resources
+                if (this.renderer) {
+                    this.renderer.dispose();
+                }
+            }
+        };
+
+        // Load STL file
+        async function loadSTLModel(modelKey) {
+            try {
+                showModelLoadingIndicator(true);
+
+                const loader = new window.STLLoader();
+                const geometry = await loader.loadAsync(modelPaths[modelKey]);
+
+                showModelLoadingIndicator(false);
+                return geometry;
+            } catch (error) {
+                console.error('Failed to load model:', error);
+                showModelLoadingIndicator(false);
+                alert('Failed to load 3D model. Reverting to simple marker.');
+                const selector = document.getElementById('model-selector');
+                if (selector) selector.value = 'none';
+                switch3DToSimpleMarker();
+                return null;
+            }
+        }
+
+        // Create mesh from geometry
+        function createMeshFromGeometry(geometry) {
+            // Compute normals for proper lighting
+            geometry.computeVertexNormals();
+
+            // Create material
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x4285F4, // Blue like current marker
+                metalness: 0.5,
+                roughness: 0.5
+            });
+
+            // Create mesh
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Scale to appropriate size
+            const box = new THREE.Box3().setFromObject(mesh);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const targetSize = 15; // meters
+            const scale = targetSize / maxDim;
+            mesh.scale.set(scale, scale, scale);
+
+            // Set initial orientation (may need adjustment after testing)
+            mesh.rotation.x = -Math.PI / 2; // Lay flat if standing vertical
+
+            return mesh;
+        }
+
+        // Convert lng/lat to Three.js scene coordinates
+        function lngLatToModelSpace(lng, lat) {
+            const mc = maplibregl.MercatorCoordinate.fromLngLat([lng, lat], 0);
+            return {
+                x: mc.x,
+                y: mc.y,
+                z: 0
+            };
+        }
+
+        // Update 3D model position
+        function update3DModelPosition(lng, lat) {
+            if (!activeModel) return;
+
+            const pos = lngLatToModelSpace(lng, lat);
+
+            // Set target for smooth animation
+            targetModelPosition = pos;
+            if (!currentModelPosition) {
+                currentModelPosition = pos;
+                activeModel.position.set(pos.x, pos.y, pos.z);
+            } else {
+                modelPositionAnimationStart = performance.now();
+            }
+        }
+
+        // Update 3D model rotation based on GPS heading
+        function update3DModelRotation(headingDegrees) {
+            if (!activeModel) return;
+            const headingRadians = (headingDegrees * Math.PI) / 180;
+            activeModel.rotation.z = headingRadians;
+        }
+
+        // Convert model space coordinates back to lng/lat
+        function modelSpaceToLngLat(x, y) {
+            const mc = new maplibregl.MercatorCoordinate(x, y, 0);
+            return mc.toLngLat();
+        }
+
+        // Get current marker position (works for both 3D model and simple marker)
+        function getCurrentMarkerPosition() {
+            if (activeModel && currentModelPosition) {
+                const lngLat = modelSpaceToLngLat(currentModelPosition.x, currentModelPosition.y);
+                return { lng: lngLat.lng, lat: lngLat.lat };
+            } else if (userMarker) {
+                return userMarker.getLngLat();
+            }
+            return null;
+        }
+
+        // Set marker position (works for both 3D model and simple marker)
+        function setMarkerPosition(lng, lat) {
+            if (activeModel) {
+                update3DModelPosition(lng, lat);
+            } else if (userMarker) {
+                userMarker.setLngLat([lng, lat]);
+            }
+        }
+
+        // Initialize 3D model on first GPS lock
+        async function init3DModel(lng, lat) {
+            // Load saved model preference or default to truck
+            currentModelKey = localStorage.getItem('selected_model') || 'old_truck';
+
+            if (currentModelKey === 'none') {
+                // User prefers simple marker
+                createSimpleMarker(lng, lat);
+                return;
+            }
+
+            // Add custom 3D layer to map
+            map.addLayer(customLayer3D);
+
+            // Load and add model
+            await loadAndDisplayModel(currentModelKey, lng, lat);
+        }
+
+        // Load and display a model
+        async function loadAndDisplayModel(modelKey, lng, lat) {
+            // Check cache first
+            if (modelCache[modelKey]) {
+                activeModel = modelCache[modelKey];
+                threeJsScene.add(activeModel);
+            } else {
+                // Load STL
+                const geometry = await loadSTLModel(modelKey);
+                if (!geometry) return; // Error handled in loadSTLModel
+
+                // Create mesh
+                const mesh = createMeshFromGeometry(geometry);
+                modelCache[modelKey] = mesh;
+                activeModel = mesh;
+                threeJsScene.add(mesh);
+            }
+
+            // Position model
+            update3DModelPosition(lng, lat);
+
+            // Set initial rotation
+            if (currentLocation && currentLocation.heading) {
+                update3DModelRotation(currentLocation.heading);
+            }
+        }
+
+        // Switch between models
+        async function switchModel(newModelKey) {
+            if (!currentLocation) return;
+
+            // Remove current model from scene
+            if (activeModel) {
+                threeJsScene.remove(activeModel);
+            }
+
+            // Load and display new model
+            currentModelKey = newModelKey;
+            await loadAndDisplayModel(newModelKey, currentLocation.smoothedLng || currentLocation.lng, currentLocation.smoothedLat || currentLocation.lat);
+        }
+
+        // Switch from 3D model to simple marker
+        async function switch3DToSimpleMarker() {
+            // Remove 3D layer
+            if (map.getLayer('3d-model-layer')) {
+                map.removeLayer('3d-model-layer');
+            }
+
+            if (activeModel) {
+                threeJsScene.remove(activeModel);
+                activeModel = null;
+            }
+
+            // Create simple marker at current location
+            if (currentLocation) {
+                createSimpleMarker(
+                    currentLocation.smoothedLng || currentLocation.lng,
+                    currentLocation.smoothedLat || currentLocation.lat
+                );
+            }
+        }
+
+        // Create simple blue dot marker
+        function createSimpleMarker(lng, lat) {
+            // Remove existing marker if any
+            if (userMarker) {
+                userMarker.remove();
+                userMarker = null;
+            }
+
+            const markerEl = document.createElement('div');
+            markerEl.className = 'user-marker';
+            markerEl.style.width = '20px';
+            markerEl.style.height = '20px';
+            markerEl.style.borderRadius = '50%';
+            markerEl.style.backgroundColor = '#4285F4';
+            markerEl.style.border = '3px solid #ffffff';
+            markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
+
+            userMarker = new maplibregl.Marker({
+                element: markerEl,
+                anchor: 'center'
+            })
+            .setLngLat([lng, lat])
+            .addTo(map);
+        }
+
+        // Show/hide model loading indicator
+        function showModelLoadingIndicator(show) {
+            const indicator = document.getElementById('model-loading-status');
+            if (indicator) {
+                indicator.style.display = show ? 'block' : 'none';
+            }
+        }
+
         // ==================== MAP MARKER ====================
         function animateMarkerAlongRoad() {
             // Cancel any ongoing animation
@@ -1926,7 +2302,7 @@
 
                     if (newPosition) {
                         // Update marker position
-                        userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
+                        setMarkerPosition(newPosition.lng, newPosition.lat);
 
                         // Update cache
                         roadGeometryCache.currentPosition = newPosition;
@@ -1940,13 +2316,15 @@
 
                 // Fallback: straight-line extrapolation if no road geometry
                 if (currentVelocity.lat !== 0 || currentVelocity.lng !== 0) {
-                    const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
-                    const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
-                    const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
+                    const currentPos = getCurrentMarkerPosition();
+                    if (currentPos) {
+                        const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
+                        const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
 
-                    userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
-                    isExtrapolating = true;
-                    markerAnimation = requestAnimationFrame(animate);
+                        setMarkerPosition(lng, lat);
+                        isExtrapolating = true;
+                        markerAnimation = requestAnimationFrame(animate);
+                    }
                 }
             }
 
@@ -1960,7 +2338,9 @@
                 markerAnimation = null;
             }
 
-            const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
+            const currentPos = getCurrentMarkerPosition();
+            if (!currentPos) return;
+
             const startLat = currentPos.lat;
             const startLng = currentPos.lng;
             const startTime = performance.now();
@@ -1973,7 +2353,7 @@
                 const lat = startLat + (targetLat - startLat) * easeProgress;
                 const lng = startLng + (targetLng - startLng) * easeProgress;
 
-                userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+                setMarkerPosition(lng, lat);
 
                 if (progress < 1) {
                     markerAnimation = requestAnimationFrame(animate);
@@ -2015,9 +2395,10 @@
             // Map-match GPS to road
             const matchedPosition = findNearestPointOnRoad(newLat, newLng, roadGeometryCache.segments);
 
-            if (userMarker) {
+            if (userMarker || activeModel) {
                 // Get current marker position
-                const currentLatLng = userMarker.getLngLat(); // Returns {lng, lat}
+                const currentLatLng = getCurrentMarkerPosition();
+                if (!currentLatLng) return;
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
@@ -2084,26 +2465,12 @@
                     smoothTransitionTo(newLat, newLng, 500);
                 }
             } else {
-                // First time: create marker
+                // First time: create marker (3D model or simple dot)
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 
-                // Create custom marker element for MapLibre
-                const markerEl = document.createElement('div');
-                markerEl.className = 'user-marker';
-                markerEl.style.width = '20px';
-                markerEl.style.height = '20px';
-                markerEl.style.borderRadius = '50%';
-                markerEl.style.backgroundColor = '#4285F4';
-                markerEl.style.border = '3px solid #ffffff';
-                markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
-
-                userMarker = new maplibregl.Marker({
-                    element: markerEl,
-                    anchor: 'center'
-                })
-                .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
-                .addTo(map);
+                // Initialize 3D model or simple marker based on user preference
+                await init3DModel(initialLng, initialLat);
 
                 // Enable 3D perspective mode on first GPS lock
                 // First check if zoom is sufficient
@@ -3482,6 +3849,11 @@
 
             lastBearing = heading;
 
+            // Rotate 3D model if active
+            if (activeModel) {
+                update3DModelRotation(heading);
+            }
+
             // Smoothly rotate map to match heading
             map.easeTo({
                 bearing: heading,
@@ -4325,20 +4697,13 @@
         function updateRainAnimation(weatherCode, precipitation) {
             console.log('Rain detection - Code:', weatherCode, 'Precip:', precipitation);
 
-            // Simplified detection: Show rain if radar is visible (primary trigger)
-            const radarVisible = isRadarVisible();
-
-            // Optional: Also check if weather API confirms rain (fallback trigger with type safety)
+            // Show rain only if weather API confirms rain at GPS location
             const apiConfirmsRain = (typeof weatherCode === 'number' && isRainingWeatherCode(weatherCode)) ||
                                     (precipitation !== null && precipitation !== undefined && precipitation > 0);
 
-            // Show rain if radar is visible OR weather API confirms rain
-            const shouldShow = radarVisible || apiConfirmsRain;
+            console.log('Rain signals - apiConfirmsRain:', apiConfirmsRain);
 
-            console.log('Rain signals - radarVisible:', radarVisible,
-                        'apiConfirmsRain:', apiConfirmsRain, 'final:', shouldShow);
-
-            if (shouldShow) {
+            if (apiConfirmsRain) {
                 showRain();
             } else {
                 hideRain();

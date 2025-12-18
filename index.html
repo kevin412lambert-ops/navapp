@@ -791,6 +791,7 @@
         let userMarker = null;
         let exitMarkers = [];
         let decorativeTreeMarkers = new Map(); // Store tree markers by grid key for persistence
+        let treesDisabledAtZoom = null; // Track zoom level where trees were disabled due to exceeding 50
 
         let currentLocation = null;
         let previousLocation = null;
@@ -2407,7 +2408,24 @@
                 // Clear all trees if wrong theme
                 decorativeTreeMarkers.forEach(marker => marker.remove());
                 decorativeTreeMarkers.clear();
+                treesDisabledAtZoom = null; // Reset disabled state
                 return;
+            }
+
+            // Get current zoom level
+            const currentZoom = map.getZoom();
+
+            // Check if trees were disabled due to exceeding 50
+            if (treesDisabledAtZoom !== null) {
+                // Trees are disabled - check if we've zoomed in enough to re-enable
+                if (currentZoom >= treesDisabledAtZoom + 2) {
+                    // Zoomed in at least 2 levels from where we disabled - re-enable trees
+                    console.log(`Re-enabling trees at zoom ${currentZoom.toFixed(1)} (was disabled at ${treesDisabledAtZoom.toFixed(1)})`);
+                    treesDisabledAtZoom = null;
+                } else {
+                    // Still too zoomed out - keep trees disabled
+                    return;
+                }
             }
 
             // Determine which emoji to use
@@ -2436,34 +2454,64 @@
             const endLng = Math.ceil(maxLng / gridSize) * gridSize;
             const endLat = Math.ceil(maxLat / gridSize) * gridSize;
 
+            // Collect all potential grid cells with their scores
+            const potentialCells = [];
+            for (let lng = startLng; lng < endLng; lng += gridSize) {
+                for (let lat = startLat; lat < endLat; lat += gridSize) {
+                    // Use seeded random to score this grid cell
+                    const seed = coordToSeed(lat, lng);
+                    const score = seededRandom(seed);
+
+                    // Add small random offset within grid cell (but deterministic based on seed)
+                    const offsetLng = lng + seededRandom(seed + 1) * gridSize;
+                    const offsetLat = lat + seededRandom(seed + 2) * gridSize;
+
+                    const gridKey = `${lng.toFixed(4)},${lat.toFixed(4)}`;
+
+                    potentialCells.push({
+                        gridKey,
+                        lng: offsetLng,
+                        lat: offsetLat,
+                        score
+                    });
+                }
+            }
+
+            // Safety check: If we would have more than 50 trees, disable trees at this zoom level
+            if (potentialCells.length > 50) {
+                console.warn(`Too many potential trees (${potentialCells.length}) at zoom ${currentZoom.toFixed(1)} - disabling trees until zoomed in`);
+                decorativeTreeMarkers.forEach(marker => marker.remove());
+                decorativeTreeMarkers.clear();
+                treesDisabledAtZoom = currentZoom;
+                return;
+            }
+
+            // Sort by score and pick top 12-20 cells (random count based on viewport center)
+            const centerSeed = coordToSeed(
+                (minLat + maxLat) / 2,
+                (minLng + maxLng) / 2
+            );
+            let targetCount = 12 + Math.floor(seededRandom(centerSeed + 999) * 9); // 12-20
+
+            // Cap at 50 trees maximum
+            targetCount = Math.min(targetCount, 50);
+
+            potentialCells.sort((a, b) => b.score - a.score);
+            const selectedCells = potentialCells.slice(0, targetCount);
+
             // Track which grid cells should have trees
             const activeGridKeys = new Set();
 
-            // Scan grid cells in viewport
-            for (let lng = startLng; lng < endLng; lng += gridSize) {
-                for (let lat = startLat; lat < endLat; lat += gridSize) {
-                    // Use seeded random to determine if this grid cell should have a tree
-                    const seed = coordToSeed(lat, lng);
-                    const random = seededRandom(seed);
+            // Place trees in selected cells
+            for (const cell of selectedCells) {
+                activeGridKeys.add(cell.gridKey);
 
-                    // Adjust this threshold to control tree density (0.15 = ~15% of grid cells have trees)
-                    if (random > 0.85) {
-                        // This grid cell should have a tree
-                        const gridKey = `${lng.toFixed(4)},${lat.toFixed(4)}`;
-                        activeGridKeys.add(gridKey);
-
-                        // Add small random offset within grid cell (but deterministic based on seed)
-                        const offsetLng = lng + seededRandom(seed + 1) * gridSize;
-                        const offsetLat = lat + seededRandom(seed + 2) * gridSize;
-
-                        // Check if tree already exists at this grid cell
-                        if (!decorativeTreeMarkers.has(gridKey)) {
-                            // Validate location before placing
-                            if (isValidTreeLocation(offsetLng, offsetLat)) {
-                                const marker = createTreeMarker(offsetLng, offsetLat, treeEmoji);
-                                decorativeTreeMarkers.set(gridKey, marker);
-                            }
-                        }
+                // Check if tree already exists at this grid cell
+                if (!decorativeTreeMarkers.has(cell.gridKey)) {
+                    // Validate location before placing
+                    if (isValidTreeLocation(cell.lng, cell.lat)) {
+                        const marker = createTreeMarker(cell.lng, cell.lat, treeEmoji);
+                        decorativeTreeMarkers.set(cell.gridKey, marker);
                     }
                 }
             }
@@ -2478,7 +2526,7 @@
             });
             treesToRemove.forEach(key => decorativeTreeMarkers.delete(key));
 
-            console.log(`Trees on map: ${decorativeTreeMarkers.size} (${treeEmoji})`);
+            console.log(`Trees on map: ${decorativeTreeMarkers.size} (${treeEmoji}) - target: ${targetCount}`);
         }
 
         // Initialize or clear all trees (called on theme change)
@@ -2486,6 +2534,7 @@
             // Clear all existing trees
             decorativeTreeMarkers.forEach(marker => marker.remove());
             decorativeTreeMarkers.clear();
+            treesDisabledAtZoom = null; // Reset disabled state on theme change
 
             // Load trees for current viewport
             updateDecorativeTrees(themeName);

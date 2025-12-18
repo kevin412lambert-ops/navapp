@@ -700,7 +700,7 @@
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <label style="font-size: 11px; color: #ccc;">Text Size:</label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="range" id="text-size-slider" min="8" max="16" value="12" style="width: 80px;">
+                                    <input type="range" id="text-size-slider" min="8" max="26" value="12" style="width: 80px;">
                                     <span id="text-size-value" style="font-size: 11px; color: #f97316; min-width: 30px;">12px</span>
                                 </div>
                             </div>
@@ -2781,6 +2781,12 @@
                             if (layer.layout['text-size']) {
                                 layer.layout['text-size'] = scaleTextSizeRecursive(layer.layout['text-size']);
                             }
+                        }
+
+                        // Force all text to be horizontal (not rotated along roads)
+                        if (layer.layout) {
+                            layer.layout['text-rotation-alignment'] = 'viewport';
+                            layer.layout['text-pitch-alignment'] = 'viewport';
                         }
                     }
                 });

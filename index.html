@@ -386,6 +386,37 @@
             transform: translateY(-50%);
         }
 
+        /* Rain Animation Styles */
+        .rain-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            display: none;
+            z-index: 500;
+        }
+
+        .rain-overlay.active {
+            display: block;
+        }
+
+        .raindrop {
+            position: absolute;
+            width: 2px;
+            height: 15px;
+            background: linear-gradient(transparent, rgba(174, 194, 224, 0.5));
+            animation: fall linear infinite;
+        }
+
+        @keyframes fall {
+            to {
+                transform: translateY(100vh);
+            }
+        }
+
         /* Search Box */
         .search-box {
             position: absolute;
@@ -934,6 +965,7 @@
                     >
                     <div class="map-coordinates" id="map-coordinates">--</div>
                     <div id="map"></div>
+                    <div id="rain-overlay" class="rain-overlay"></div>
                 </div>
             </div>
         </div>
@@ -2493,6 +2525,10 @@
                 };
 
                 updateWeatherDisplay();
+
+                // Update rain animation based on weather code
+                updateRainAnimation(current.weather_code);
+
                 console.log('Weather updated:', weatherData);
             } catch (error) {
                 console.error('Weather query failed:', error);
@@ -3423,6 +3459,78 @@
 
             // Update weather display (for dynamic sunrise/sunset transitions)
             updateWeatherDisplay();
+        }
+
+        // ==================== RAIN ANIMATION ====================
+
+        // Check if weather code indicates rain/precipitation
+        function isRainingWeatherCode(code) {
+            // Rain codes: drizzle (51,53,55), rain (61,63,65), showers (80,81,82), thunderstorms (95,96,99)
+            const rainCodes = [51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99];
+            return rainCodes.includes(code);
+        }
+
+        // Create raindrop elements with random positions and animation delays
+        function createRaindrops() {
+            const rainOverlay = document.getElementById('rain-overlay');
+            const dropCount = 75; // Number of raindrops
+
+            for (let i = 0; i < dropCount; i++) {
+                const drop = document.createElement('div');
+                drop.className = 'raindrop';
+
+                // Random horizontal position (0-100%)
+                const leftPos = Math.random() * 100;
+                drop.style.left = `${leftPos}%`;
+
+                // Random animation duration (0.5-1.5 seconds)
+                const duration = 0.5 + Math.random();
+                drop.style.animationDuration = `${duration}s`;
+
+                // Random animation delay (0-2 seconds for staggered effect)
+                const delay = Math.random() * 2;
+                drop.style.animationDelay = `${delay}s`;
+
+                rainOverlay.appendChild(drop);
+            }
+        }
+
+        // Show rain animation
+        function showRain() {
+            const rainOverlay = document.getElementById('rain-overlay');
+
+            // Only show if not already active
+            if (!rainOverlay.classList.contains('active')) {
+                rainOverlay.classList.add('active');
+                createRaindrops();
+                console.log('Rain animation started');
+            }
+        }
+
+        // Hide rain animation
+        function hideRain() {
+            const rainOverlay = document.getElementById('rain-overlay');
+
+            if (rainOverlay.classList.contains('active')) {
+                rainOverlay.classList.remove('active');
+                // Clear all raindrops
+                rainOverlay.innerHTML = '';
+                console.log('Rain animation stopped');
+            }
+        }
+
+        // Update rain animation based on weather code
+        function updateRainAnimation(weatherCode) {
+            if (weatherCode !== null && weatherCode !== undefined) {
+                if (isRainingWeatherCode(weatherCode)) {
+                    showRain();
+                } else {
+                    hideRain();
+                }
+            } else {
+                // No weather data - hide rain
+                hideRain();
+            }
         }
 
         function updateExitsDisplay() {

@@ -2178,20 +2178,25 @@
             console.log('update3DModelPosition:', lng, lat, '->', pos);
             console.log('Meters to Mercator scale:', pos.metersToMercator);
 
-            // Apply scale based on map zoom and Mercator coordinates
+            // Apply scale - make it MUCH larger for visibility
             const currentZoom = map.getZoom();
             const targetSizeMeters = 15;
-            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters;
+            // Multiply by 100 to make it very visible for testing
+            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters * 100;
 
             activeModel.scale.setScalar(scale);
             console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
 
+            // Add z-offset to lift model above ground (convert meters to Mercator units)
+            const zOffsetMeters = 10; // 10 meters above ground
+            const zOffset = zOffsetMeters * pos.metersToMercator;
+
             // Set target for smooth animation
-            targetModelPosition = pos;
+            targetModelPosition = { x: pos.x, y: pos.y, z: zOffset };
             if (!currentModelPosition) {
-                currentModelPosition = pos;
-                activeModel.position.set(pos.x, pos.y, pos.z);
-                console.log('Model position set to:', activeModel.position);
+                currentModelPosition = { x: pos.x, y: pos.y, z: zOffset };
+                activeModel.position.set(pos.x, pos.y, zOffset);
+                console.log('Model position set to:', activeModel.position, 'with z-offset:', zOffset);
             } else {
                 modelPositionAnimationStart = performance.now();
             }

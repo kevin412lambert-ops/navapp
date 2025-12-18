@@ -1394,20 +1394,8 @@
             // Update button appearance
             updatePerspectiveButton();
 
-            // Apply perspective mode if it was enabled and zoom level allows it
-            if (perspectiveMode) {
-                const currentZoom = map.getZoom();
-                if (currentZoom >= 16) {
-                    map.setPitch(45);
-                    console.log('Restored 3D perspective mode from localStorage');
-                } else {
-                    // Zoom too low - disable perspective but remember user preference
-                    perspectiveMode = false;
-                    perspectiveDisabledByZoom = true;
-                    updatePerspectiveButton();
-                    console.log('Perspective mode saved in localStorage, but zoom < 16 - will re-enable when zoomed in');
-                }
-            }
+            // Note: We'll apply the saved perspective mode after the map loads
+            // The map isn't created yet when this function is called
 
             // Toggle button click handler
             console.log('Attaching click event listener to perspective toggle button');
@@ -1500,6 +1488,21 @@
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
                 addDecorativeTrees(savedStyle); // Add trees if cartoon/holiday theme
+
+                // Apply saved perspective mode if it was enabled and zoom allows it
+                if (perspectiveMode) {
+                    const currentZoom = map.getZoom();
+                    if (currentZoom >= 16) {
+                        map.setPitch(45);
+                        console.log('Restored 3D perspective mode from localStorage');
+                    } else {
+                        // Zoom too low - disable perspective but remember user preference
+                        perspectiveMode = false;
+                        perspectiveDisabledByZoom = true;
+                        updatePerspectiveButton();
+                        console.log('Perspective mode saved in localStorage, but zoom < 16 - will re-enable when zoomed in');
+                    }
+                }
 
                 // Set initial customization availability
                 updateCustomizationAvailability(savedStyle);

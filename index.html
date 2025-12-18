@@ -1041,6 +1041,7 @@
         let lastBearing = null; // Last heading to prevent unnecessary updates
         let perspectiveDisabledByZoom = false; // Track if perspective was auto-disabled due to zoom level
         let savedAutoRotationState = false; // Save auto-rotation state when auto-disabling perspective
+        let perspectiveToggleInProgress = false; // Prevent GPS updates from interfering during toggle animation
 
         let currentLocation = null;
         let previousLocation = null;
@@ -1525,6 +1526,7 @@
                         // Save current auto-rotation state before disabling
                         savedAutoRotationState = autoRotationEnabled;
                         perspectiveDisabledByZoom = true;
+                        perspectiveToggleInProgress = true;
                         console.log('Auto-disabling 3D perspective due to zoom level < 16');
 
                         // Manually disable perspective without calling disablePerspectiveMode
@@ -1550,12 +1552,18 @@
                         // Update UI but don't modify auto-rotation state
                         updatePerspectiveButton();
                         localStorage.setItem('perspective_mode', 'false');
+
+                        // Clear toggle flag after animation completes
+                        setTimeout(() => {
+                            perspectiveToggleInProgress = false;
+                        }, 800);
                     }
                 } else {
                     // Zoomed in enough - re-enable perspective if it was auto-disabled
                     if (perspectiveDisabledByZoom) {
                         console.log(`Auto-re-enable triggered - savedAutoRotationState: ${savedAutoRotationState}`);
                         perspectiveDisabledByZoom = false;
+                        perspectiveToggleInProgress = true;
 
                         // Restore saved auto-rotation state
                         autoRotationEnabled = savedAutoRotationState;
@@ -1598,6 +1606,11 @@
                             autoRotationCheckbox.checked = autoRotationEnabled;
                         }
                         updatePerspectiveButton();
+
+                        // Clear toggle flag after animation completes
+                        setTimeout(() => {
+                            perspectiveToggleInProgress = false;
+                        }, 800);
                     }
                 }
             });
@@ -1687,9 +1700,6 @@
 
             // Update map marker
             updateMapMarker();
-
-            // Center map on user with appropriate offset for perspective mode
-            centerMapOnUser(false);
 
             // Update status
             updateStatus('GPS Active', 'active');
@@ -1966,10 +1976,26 @@
                 }
             }
 
-            // Re-center map smoothly
-            const targetLat = matchedPosition ? matchedPosition.lat : newLat;
-            const targetLng = matchedPosition ? matchedPosition.lng : newLng;
-            map.easeTo({center: [targetLng, targetLat], duration: 500}); // [lng, lat] - REVERSED!
+            // Re-center map smoothly with appropriate offset for perspective mode
+            // Skip if we're in the middle of a perspective toggle animation
+            if (!perspectiveToggleInProgress) {
+                const targetLat = matchedPosition ? matchedPosition.lat : newLat;
+                const targetLng = matchedPosition ? matchedPosition.lng : newLng;
+
+                // Calculate offset based on perspective mode
+                let yOffset = 0;
+                if (perspectiveMode) {
+                    const container = map.getContainer();
+                    const containerHeight = container.offsetHeight;
+                    yOffset = containerHeight * 0.25;
+                }
+
+                map.easeTo({
+                    center: [targetLng, targetLat],
+                    offset: [0, yOffset],
+                    duration: 500
+                }); // [lng, lat] - REVERSED!
+            }
         }
 
         // ==================== ROAD INFO QUERY ====================
@@ -3095,6 +3121,7 @@
             }
 
             perspectiveMode = true;
+            perspectiveToggleInProgress = true;
 
             // Calculate center and offset for 3D mode
             const container = map.getContainer();
@@ -3128,12 +3155,18 @@
             // Update UI
             updatePerspectiveButton();
 
+            // Clear toggle flag after animation completes
+            setTimeout(() => {
+                perspectiveToggleInProgress = false;
+            }, 800);
+
             console.log('3D Perspective mode enabled');
         }
 
         // Disable 3D perspective mode
         function disablePerspectiveMode() {
             perspectiveMode = false;
+            perspectiveToggleInProgress = true;
 
             // Combine all animations into a single easeTo call to prevent conflicts
             if (currentLocation) {
@@ -3158,6 +3191,11 @@
 
             // Update UI
             updatePerspectiveButton();
+
+            // Clear toggle flag after animation completes
+            setTimeout(() => {
+                perspectiveToggleInProgress = false;
+            }, 800);
 
             console.log('2D Map mode enabled');
         }

@@ -1985,12 +1985,12 @@
                 console.log('Map:', map);
                 console.log('GL context:', gl);
 
-                // Initialize Three.js scene with OrthographicCamera
-                // Mercator coordinates are 0-1, so set camera bounds to match
-                this.camera = new window.THREE.OrthographicCamera(0, 1, 1, 0, -10, 10);
+                // Initialize Three.js scene with regular Camera
+                // We'll use MapLibre's projection matrix
+                this.camera = new window.THREE.Camera();
                 this.scene = new window.THREE.Scene();
 
-                console.log('Using OrthographicCamera with Mercator bounds [0,1]');
+                console.log('Using Camera with MapLibre projection matrix');
 
                 // Use MapLibre's WebGL context
                 this.renderer = new window.THREE.WebGLRenderer({

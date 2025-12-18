@@ -2010,6 +2010,14 @@
                 threeJsCamera = this.camera;
                 threeJsRenderer = this.renderer;
 
+                // TEST: Add a bright test cube to verify rendering works
+                const testGeometry = new window.THREE.BoxGeometry(0.001, 0.001, 0.001);
+                const testMaterial = new window.THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: false });
+                const testCube = new window.THREE.Mesh(testGeometry, testMaterial);
+                testCube.position.set(0.23, 0.40, 0.001); // Same area as our GPS position
+                this.scene.add(testCube);
+                console.log('TEST CUBE ADDED at position:', testCube.position);
+
                 console.log('Three.js scene initialized:', this.scene);
                 console.log('Scene children (lights):', this.scene.children.length);
             },
@@ -2041,6 +2049,8 @@
 
                 // Update camera with MapLibre's projection matrix
                 this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
+                this.camera.matrixWorldInverse = new window.THREE.Matrix4();
+                this.camera.projectionMatrixInverse = new window.THREE.Matrix4().copy(this.camera.projectionMatrix).invert();
 
                 // Handle smooth position animation
                 if (targetModelPosition && currentModelPosition && activeModel) {

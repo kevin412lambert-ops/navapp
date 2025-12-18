@@ -2099,28 +2099,43 @@
                     }
                 }
 
-                // TEST: Draw directly with WebGL to verify context works
-                if (!renderDebugLogged) {
-                    console.log('Testing direct WebGL draw...');
-                }
-
-                // Draw a red rectangle in the top-left corner
-                gl.scissor(50, 50, 100, 100);
-                gl.enable(gl.SCISSOR_TEST);
-                gl.clearColor(1.0, 0.0, 0.0, 1.0); // Bright red
-                gl.clear(gl.COLOR_BUFFER_BIT);
-                gl.disable(gl.SCISSOR_TEST);
-
                 // Render Three.js scene
                 const canvas = this.map.getCanvas();
                 gl.viewport(0, 0, canvas.width, canvas.height);
-                gl.disable(gl.DEPTH_TEST);
 
+                // Set up WebGL state for Three.js
+                gl.disable(gl.DEPTH_TEST);
+                gl.disable(gl.CULL_FACE);
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+                // Reset Three.js renderer state
                 this.renderer.state.reset();
-                console.log('Rendering scene with', this.scene.children.length, 'children');
+
+                // Clear to transparent
+                gl.clearColor(0, 0, 0, 0);
+
+                if (!renderDebugLogged) {
+                    console.log('Rendering scene with', this.scene.children.length, 'children');
+                    console.log('Camera:', this.camera);
+                    console.log('Test cube:', window.testCube);
+                    if (window.testCube) {
+                        console.log('Test cube position:', window.testCube.position);
+                        console.log('Test cube scale:', window.testCube.scale);
+                        console.log('Test cube visible:', window.testCube.visible);
+                    }
+                }
+
+                // Render Three.js
                 this.renderer.render(this.scene, this.camera);
 
-                gl.enable(gl.DEPTH_TEST);
+                // Draw red rectangle AFTER Three.js to verify it's not being covered
+                gl.scissor(50, 50, 100, 100);
+                gl.enable(gl.SCISSOR_TEST);
+                gl.clearColor(1.0, 0.0, 0.0, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.disable(gl.SCISSOR_TEST);
+
                 this.map.triggerRepaint();
             },
 

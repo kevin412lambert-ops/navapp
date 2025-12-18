@@ -2212,15 +2212,16 @@
             const pos = lngLatToModelSpace(lng, lat);
             console.log('update3DModelPosition:', lng, lat, '->', pos);
 
-            // Use fixed scale in Mercator space (like the test cube)
-            // 0.005 = 0.5% of screen, good size for a vehicle
-            const scale = 0.005;
+            // Scale for MapLibre's projection matrix (needs to be MUCH larger)
+            const currentZoom = map.getZoom();
+            const targetSizeMeters = 50; // 50 meters
+            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters * 1000;
 
             activeModel.scale.setScalar(scale);
-            console.log('Model scaled to:', scale, '(fixed Mercator scale)');
+            console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
 
             // Position with small z-offset
-            const zOffset = 0.001;
+            const zOffset = pos.metersToMercator * 5; // 5 meters above ground
 
             // Set target for smooth animation
             targetModelPosition = { x: pos.x, y: pos.y, z: zOffset };
@@ -2298,13 +2299,6 @@
             console.log('loadAndDisplayModel called:', modelKey, lng, lat);
             console.log('threeJsScene exists:', !!threeJsScene);
             console.log('map exists:', !!map);
-
-            // TEMPORARY: Clear cache to force reload with new scaling logic
-            // TODO: Remove this after testing
-            if (modelCache[modelKey]) {
-                console.log('Clearing cached model to force reload with new scale');
-                delete modelCache[modelKey];
-            }
 
             // Check cache first
             if (modelCache[modelKey]) {

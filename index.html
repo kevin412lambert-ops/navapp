@@ -2243,27 +2243,23 @@
 
             const pos = lngLatToModelSpace(lng, lat);
             console.log('update3DModelPosition:', lng, lat, '->', pos);
-            console.log('Meters to Mercator scale:', pos.metersToMercator);
 
-            // Apply scale - make it MUCH larger for visibility
-            const currentZoom = map.getZoom();
-            const targetSizeMeters = 15;
-            // Multiply by 100 to make it very visible for testing
-            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters * 100;
+            // Use fixed scale in Mercator space (like the test cube)
+            // 0.005 = 0.5% of screen, good size for a vehicle
+            const scale = 0.005;
 
             activeModel.scale.setScalar(scale);
-            console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
+            console.log('Model scaled to:', scale, '(fixed Mercator scale)');
 
-            // Add z-offset to lift model above ground (convert meters to Mercator units)
-            const zOffsetMeters = 10; // 10 meters above ground
-            const zOffset = zOffsetMeters * pos.metersToMercator;
+            // Position with small z-offset
+            const zOffset = 0.001;
 
             // Set target for smooth animation
             targetModelPosition = { x: pos.x, y: pos.y, z: zOffset };
             if (!currentModelPosition) {
                 currentModelPosition = { x: pos.x, y: pos.y, z: zOffset };
                 activeModel.position.set(pos.x, pos.y, zOffset);
-                console.log('Model position set to:', activeModel.position, 'with z-offset:', zOffset);
+                console.log('Model position set to:', activeModel.position, 'z:', zOffset);
             } else {
                 modelPositionAnimationStart = performance.now();
             }

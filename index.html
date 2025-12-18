@@ -811,12 +811,12 @@
                     <div style="padding: 12px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <button id="zoom-decrease" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">−</button>
-                            <input type="range" id="map-zoom-slider" min="8" max="19" value="18" style="flex: 1;">
+                            <input type="range" id="map-zoom-slider" min="8" max="19" value="17" style="flex: 1;">
                             <button id="zoom-increase" style="width: 32px; height: 32px; border: none; background: #2a2a2a; color: #f97316; border-radius: 4px; cursor: pointer; font-size: 18px; font-weight: bold;">+</button>
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: #666;">
                             <span>8</span>
-                            <span id="map-zoom-value">18</span>
+                            <span id="map-zoom-value">17</span>
                             <span>19</span>
                         </div>
                     </div>
@@ -1371,9 +1371,9 @@
             const toggleButton = document.getElementById('perspective-toggle');
             const autoRotationCheckbox = document.getElementById('auto-rotation-checkbox');
 
-            // Load saved preferences
-            const savedPerspectiveMode = localStorage.getItem('perspective_mode') === 'true';
-            const savedAutoRotation = localStorage.getItem('auto_rotation') === 'true';
+            // Load saved preferences (default to enabled)
+            const savedPerspectiveMode = localStorage.getItem('perspective_mode') !== 'false';
+            const savedAutoRotation = localStorage.getItem('auto_rotation') !== 'false';
 
             // Set initial state
             perspectiveMode = savedPerspectiveMode;
@@ -1479,7 +1479,7 @@
                 container: 'map',
                 style: initialStyle,
                 center: [-122.4194, 37.7749], // [lng, lat] - REVERSED from Leaflet!
-                zoom: 18,
+                zoom: 17,
                 attributionControl: false
             });
 
@@ -1620,6 +1620,9 @@
 
             // Update map marker
             updateMapMarker();
+
+            // Center map on user with appropriate offset for perspective mode
+            centerMapOnUser(false);
 
             // Update status
             updateStatus('GPS Active', 'active');
@@ -1855,8 +1858,8 @@
                 .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
                 .addTo(map);
 
-                // Center map on initial position
-                map.jumpTo({center: [initialLng, initialLat], zoom: 15}); // [lng, lat] - REVERSED!
+                // Center map on initial position with appropriate offset
+                centerMapOnUser(false);
 
                 if (matchedPosition) {
                     roadGeometryCache.currentPosition = matchedPosition;
@@ -2951,8 +2954,45 @@
 
         // ==================== 3D PERSPECTIVE VIEW ====================
 
+        // Center map on user's current location with appropriate offset for perspective mode
+        function centerMapOnUser(animated = true) {
+            if (!currentLocation || !map) return;
+
+            const duration = animated ? 800 : 0;
+
+            if (perspectiveMode) {
+                // In 3D mode: Position user at bottom 25% (75% from top)
+                // This gives more view ahead in the direction of travel
+                const container = map.getContainer();
+                const containerHeight = container.offsetHeight;
+
+                // Calculate offset: move center up by 25% of viewport height
+                // Positive Y offset shifts view up (user appears lower on screen)
+                const yOffset = containerHeight * 0.25;
+
+                map.easeTo({
+                    center: [currentLocation.lng, currentLocation.lat],
+                    offset: [0, yOffset],
+                    duration: duration
+                });
+            } else {
+                // In 2D mode: Center user in the middle of the screen
+                map.easeTo({
+                    center: [currentLocation.lng, currentLocation.lat],
+                    duration: duration
+                });
+            }
+        }
+
         // Enable 3D perspective mode
         function enablePerspectiveMode() {
+            // Check if zoom level allows perspective mode
+            const currentZoom = map.getZoom();
+            if (currentZoom < 16) {
+                console.warn('Cannot enable 3D perspective: zoom level must be >= 16');
+                return;
+            }
+
             perspectiveMode = true;
 
             // Animate to 3D perspective view
@@ -2968,6 +3008,11 @@
                     duration: 800
                 });
             }
+
+            // Center map with user at bottom 25%
+            setTimeout(() => {
+                centerMapOnUser(true);
+            }, 100);
 
             // Save to localStorage
             localStorage.setItem('perspective_mode', 'true');
@@ -2988,6 +3033,11 @@
                 bearing: 0,
                 duration: 800
             });
+
+            // Recenter map with user in the middle
+            setTimeout(() => {
+                centerMapOnUser(true);
+            }, 100);
 
             // Save to localStorage
             localStorage.setItem('perspective_mode', 'false');
@@ -3314,13 +3364,13 @@
             if (!map) return;
 
             const SPEED_THRESHOLD = 55;  // MPH
-            const HIGH_SPEED_ZOOM = 17;
-            const NORMAL_ZOOM = 18;
+            const HIGH_SPEED_ZOOM = 18;
+            const NORMAL_ZOOM = 17;
             const ANIMATION_DURATION = 3;  // seconds
 
             // Check if we need to zoom out (going fast)
             if (speed > SPEED_THRESHOLD && !autoZoomState.isZoomedOut) {
-                // Speed exceeded threshold - zoom out to 17
+                // Speed exceeded threshold - zoom out to 18
                 map.setZoom(HIGH_SPEED_ZOOM, {
                     animate: true,
                     duration: ANIMATION_DURATION
@@ -3330,7 +3380,7 @@
             }
             // Check if we need to zoom back in (slowed down)
             else if (speed <= SPEED_THRESHOLD && autoZoomState.isZoomedOut) {
-                // Speed dropped below threshold - zoom back in to 18
+                // Speed dropped below threshold - zoom back in to 17
                 map.setZoom(NORMAL_ZOOM, {
                     animate: true,
                     duration: ANIMATION_DURATION

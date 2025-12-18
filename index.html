@@ -1073,6 +1073,11 @@
         let currentVelocity = { lat: 0, lng: 0 }; // Velocity in degrees/ms
         let isExtrapolating = false; // Whether we're extrapolating beyond GPS data
 
+        // GPS Smoothing State
+        let smoothedLocation = null; // EWMA-smoothed GPS position
+        const SMOOTHING_FACTOR = 0.3; // Default smoothing factor (0=max smooth, 1=no smooth)
+        let stationaryStartTime = null; // Track stationary duration
+
         // Speed limit caching
         let speedLimitCache = {
             value: null,        // Cached speed limit in mph
@@ -1696,7 +1701,15 @@
             const coords = position.coords;
             const now = performance.now();
 
+            // Filter out low-accuracy GPS readings
+            const GPS_ACCURACY_THRESHOLD = 50; // meters
+            if (coords.accuracy > GPS_ACCURACY_THRESHOLD) {
+                console.log(`GPS accuracy too low (${coords.accuracy}m), ignoring update`);
+                return;
+            }
+
             // Track GPS update intervals for adaptive animation
+            let gpsRecovered = false;
             if (lastGPSUpdateTime) {
                 const interval = now - lastGPSUpdateTime;
                 gpsUpdateIntervals.push(interval);
@@ -1704,6 +1717,14 @@
                 // Keep rolling window of last 5 intervals
                 if (gpsUpdateIntervals.length > 5) {
                     gpsUpdateIntervals.shift();
+                }
+
+                // Detect GPS signal recovery (gap >5 seconds)
+                const GPS_RECOVERY_THRESHOLD = 5000; // ms
+                if (interval > GPS_RECOVERY_THRESHOLD) {
+                    console.log('GPS signal recovered after loss');
+                    smoothedLocation = null; // Reset smoothing for quick position sync
+                    gpsRecovered = true;
                 }
             }
             lastGPSUpdateTime = now;
@@ -1728,6 +1749,16 @@
                 }
             }
 
+            // Detect unrealistic position jumps (GPS glitches)
+            let isUnreliable = false;
+            if (previousLocation && calculatedSpeed !== null) {
+                const MAX_REASONABLE_SPEED = 50; // m/s (~112 mph)
+                if (calculatedSpeed > MAX_REASONABLE_SPEED) {
+                    console.log(`Unrealistic speed (${calculatedSpeed}m/s), flagging as unreliable`);
+                    isUnreliable = true;
+                }
+            }
+
             // Update current location
             currentLocation = {
                 lat: coords.latitude,
@@ -1737,8 +1768,26 @@
                 accuracy: coords.accuracy, // meters
                 altitude: coords.altitude, // meters
                 altitudeAccuracy: coords.altitudeAccuracy,
-                timestamp: position.timestamp
+                timestamp: position.timestamp,
+                isUnreliable: isUnreliable // Flag for GPS glitches
             };
+
+            // Flag for sync transition if recovering from signal loss
+            if (gpsRecovered) {
+                currentLocation.requiresSyncTransition = true;
+            }
+
+            // Smooth the GPS position
+            const smoothed = smoothGPSPosition(
+                currentLocation.lat,
+                currentLocation.lng,
+                currentLocation.accuracy,
+                currentLocation.isUnreliable,
+                currentLocation.speed || 0
+            );
+
+            currentLocation.smoothedLat = smoothed.lat;
+            currentLocation.smoothedLng = smoothed.lng;
 
             // Check for nearby overpasses
             checkNearbyOverpasses(currentLocation.lat, currentLocation.lng);
@@ -1791,6 +1840,35 @@
             return sum / gpsUpdateIntervals.length;
         }
 
+        // Smooth GPS position using Exponential Weighted Moving Average (EWMA)
+        function smoothGPSPosition(newLat, newLng, accuracy, isUnreliable, speed) {
+            // Adjust smoothing factor based on GPS quality and speed
+            let alpha = SMOOTHING_FACTOR;
+
+            // Less smoothing at high speeds for responsiveness
+            if (speed > 25) { // >25 m/s (~56 mph)
+                alpha = 0.6; // More responsive
+            } else if (speed < 5) { // <5 m/s (~11 mph)
+                alpha = 0.2; // More smoothing
+            } else if (isUnreliable || accuracy > 25) {
+                alpha = 0.15; // Heavy smoothing for poor GPS
+            } else if (accuracy < 10) {
+                alpha = 0.5; // Less smoothing for high-quality GPS
+            }
+
+            // Initialize on first reading
+            if (!smoothedLocation) {
+                smoothedLocation = { lat: newLat, lng: newLng };
+                return smoothedLocation;
+            }
+
+            // EWMA calculation
+            smoothedLocation.lat = smoothedLocation.lat * (1 - alpha) + newLat * alpha;
+            smoothedLocation.lng = smoothedLocation.lng * (1 - alpha) + newLng * alpha;
+
+            return smoothedLocation;
+        }
+
         // ==================== MAP MARKER ====================
         function animateMarkerAlongRoad() {
             // Cancel any ongoing animation
@@ -1808,12 +1886,23 @@
                 const elapsedSinceLastUpdate = currentTime - lastUpdateTime;
                 lastUpdateTime = currentTime;
 
-                // Check if vehicle is moving
-                if (!currentLocation || currentLocation.speed < 0.5) {
-                    // Stationary - stop animation
-                    markerAnimation = null;
-                    isExtrapolating = false;
+                // Enhanced stationary detection with time threshold
+                const STATIONARY_THRESHOLD = 0.5; // m/s
+                const STATIONARY_TIME_THRESHOLD = 3000; // ms
+
+                if (!currentLocation || currentLocation.speed < STATIONARY_THRESHOLD) {
+                    if (!stationaryStartTime) {
+                        stationaryStartTime = performance.now();
+                    }
+
+                    // Stop animation after stationary for 3 seconds
+                    if (currentTime - stationaryStartTime > STATIONARY_TIME_THRESHOLD) {
+                        markerAnimation = null;
+                        isExtrapolating = false;
+                    }
                     return;
+                } else {
+                    stationaryStartTime = null; // Reset when moving
                 }
 
                 // Try road-following if we have geometry
@@ -1889,8 +1978,9 @@
         async function updateMapMarker() {
             if (!currentLocation) return;
 
-            const newLat = currentLocation.lat;
-            const newLng = currentLocation.lng;
+            // Use smoothed position for map-matching if available
+            const newLat = currentLocation.smoothedLat || currentLocation.lat;
+            const newLng = currentLocation.smoothedLng || currentLocation.lng;
             const now = performance.now();
 
             // Fetch road geometry if needed (every 30 seconds or if moved far)
@@ -1920,10 +2010,17 @@
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
-                // Calculate distance moved
-                const distanceMoved = calculateDistance(currentLat, currentLng, newLat, newLng);
+                // Calculate distance moved (in meters)
+                const distanceMovedMeters = calculateDistance(currentLat, currentLng, newLat, newLng);
 
-                if (distanceMoved < 0.00001) {
+                // Dynamic jitter threshold based on movement state
+                const isStationary = currentLocation.speed < 0.5; // m/s
+                const JITTER_THRESHOLD_STATIONARY = 15; // meters when stopped
+                const JITTER_THRESHOLD_MOVING = 5; // meters when moving
+
+                const jitterThreshold = isStationary ? JITTER_THRESHOLD_STATIONARY : JITTER_THRESHOLD_MOVING;
+
+                if (distanceMovedMeters < jitterThreshold) {
                     // Tiny movement - ignore to prevent jitter
                     return;
                 }
@@ -1944,12 +2041,24 @@
                     currentVelocity.lat = (matchedPosition.lat - currentLat) / avgInterval;
                     currentVelocity.lng = (matchedPosition.lng - currentLng) / avgInterval;
 
-                    // Only do hard correction if VERY far off (>50m), otherwise let animation catch up
-                    if (distanceFromMarkerToMatched > 0.0003) {
-                        // More than ~30m off - instant correction (probably GPS jumped or changed roads)
-                        userMarker.setLngLat([matchedPosition.lng, matchedPosition.lat]); // [lng, lat] - REVERSED!
+                    // Handle GPS recovery transition
+                    if (currentLocation.requiresSyncTransition) {
+                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 2000);
+                        currentLocation.requiresSyncTransition = false;
+                        return;
                     }
-                    // Otherwise, just let the animation naturally move toward the new position
+
+                    // Always use smooth animation, graduated by deviation size
+                    if (distanceFromMarkerToMatched > 50) {
+                        // Large deviation (>50m) - smooth transition with longer duration
+                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 1500);
+                        return;
+                    } else if (distanceFromMarkerToMatched > 20) {
+                        // Medium deviation (>20m) - moderate smooth transition
+                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 800);
+                        return;
+                    }
+                    // Small deviations (<20m) - let animation naturally catch up
 
                     // Ensure animation is running if moving
                     if (currentLocation.speed > 0.5 && !markerAnimation) {
@@ -2915,11 +3024,11 @@
             return zoom <= 8 && opacity > 0;
         }
 
-        // Periodically check for rain when radar is visible
+        // Periodically check for rain animation
         function startRadarRainCheck() {
-            // Check for rain every 30 seconds when radar is visible
+            // Check for rain every 30 seconds
             setInterval(() => {
-                if (isRadarVisible() && weatherData) {
+                if (weatherData) {
                     // Re-evaluate rain animation with current data
                     const weatherCode = weatherData.weatherCode;  // Use numeric code, not string condition
                     const precipitation = weatherData.precipitation;

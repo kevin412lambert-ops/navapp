@@ -2694,6 +2694,7 @@
                     windGust: current.wind_gusts_10m,
                     windDirection: current.wind_direction_10m,
                     precipitation: current.precipitation || 0,
+                    weatherCode: current.weather_code,  // Store numeric weather code
                     condition: getWeatherCondition(current.weather_code),
                     sunrise: daily.sunrise[0],  // Today's sunrise (ISO 8601 format)
                     sunset: daily.sunset[0]     // Today's sunset (ISO 8601 format)
@@ -2920,7 +2921,7 @@
             setInterval(() => {
                 if (isRadarVisible() && weatherData) {
                     // Re-evaluate rain animation with current data
-                    const weatherCode = weatherData.condition;
+                    const weatherCode = weatherData.weatherCode;  // Use numeric code, not string condition
                     const precipitation = weatherData.precipitation;
                     updateRainAnimation(weatherCode, precipitation);
                 }
@@ -4201,24 +4202,22 @@
             }
         }
 
-        // Update rain animation based on weather code and precipitation (multi-signal detection)
+        // Update rain animation based on radar visibility and weather data (simplified detection)
         function updateRainAnimation(weatherCode, precipitation) {
             console.log('Rain detection - Code:', weatherCode, 'Precip:', precipitation);
 
-            // Multi-signal detection
-            const rainByCode = weatherCode !== null && weatherCode !== undefined && isRainingWeatherCode(weatherCode);
-            const rainByPrecip = precipitation !== null && precipitation !== undefined && precipitation > 0;
+            // Simplified detection: Show rain if radar is visible (primary trigger)
             const radarVisible = isRadarVisible();
-            const cloudyWithRadar = weatherCode === 3 && radarVisible;
 
-            // Show rain if:
-            // 1. Weather code indicates rain (strong signal)
-            // 2. Precipitation detected (strong signal)
-            // 3. Cloudy AND radar showing (medium signal - catches overhead rain)
-            const shouldShow = rainByCode || rainByPrecip || cloudyWithRadar;
+            // Optional: Also check if weather API confirms rain (fallback trigger with type safety)
+            const apiConfirmsRain = (typeof weatherCode === 'number' && isRainingWeatherCode(weatherCode)) ||
+                                    (precipitation !== null && precipitation !== undefined && precipitation > 0);
 
-            console.log('Rain signals - byCode:', rainByCode, 'byPrecip:', rainByPrecip,
-                        'cloudyWithRadar:', cloudyWithRadar, 'radarVisible:', radarVisible, 'final:', shouldShow);
+            // Show rain if radar is visible OR weather API confirms rain
+            const shouldShow = radarVisible || apiConfirmsRain;
+
+            console.log('Rain signals - radarVisible:', radarVisible,
+                        'apiConfirmsRain:', apiConfirmsRain, 'final:', shouldShow);
 
             if (shouldShow) {
                 showRain();

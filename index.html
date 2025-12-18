@@ -1985,9 +1985,12 @@
                 console.log('Map:', map);
                 console.log('GL context:', gl);
 
-                // Initialize Three.js scene
-                this.camera = new window.THREE.Camera();
+                // Initialize Three.js scene with OrthographicCamera
+                // Mercator coordinates are 0-1, so set camera bounds to match
+                this.camera = new window.THREE.OrthographicCamera(0, 1, 1, 0, -10, 10);
                 this.scene = new window.THREE.Scene();
+
+                console.log('Using OrthographicCamera with Mercator bounds [0,1]');
 
                 // Use MapLibre's WebGL context
                 this.renderer = new window.THREE.WebGLRenderer({
@@ -2052,10 +2055,9 @@
                     renderDebugLogged = true;
                 }
 
-                // Update camera with MapLibre's projection matrix
-                this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
-                this.camera.matrixWorldInverse = new window.THREE.Matrix4();
-                this.camera.projectionMatrixInverse = new window.THREE.Matrix4().copy(this.camera.projectionMatrix).invert();
+                // Don't override camera projection - we're using our own OrthographicCamera
+                // that matches Mercator coordinates (0-1 range)
+                this.camera.updateProjectionMatrix();
 
                 // TEST: Position the test cube using simple coordinates
                 if (window.testCube && currentLocation) {

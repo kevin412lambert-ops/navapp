@@ -989,14 +989,26 @@
     <!-- MapLibre GL JS -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-    <!-- Three.js Core Library -->
-    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <!-- Import Map for Three.js modules -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+    }
+    </script>
 
-    <!-- STL Loader (ES6 Module) - Load with Promise -->
+    <!-- Three.js and STL Loader (ES6 Module) -->
     <script type="module">
-        import { STLLoader } from 'https://unpkg.com/three@0.158.0/examples/jsm/loaders/STLLoader.js';
+        import * as THREE from 'three';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+        // Make THREE and STLLoader globally available
+        window.THREE = THREE;
         window.STLLoader = STLLoader;
         window.STLLoaderReady = true;
+
         // Dispatch event when ready
         window.dispatchEvent(new Event('stlloader-ready'));
     </script>
@@ -1969,11 +1981,11 @@
 
             onAdd: function(map, gl) {
                 // Initialize Three.js scene
-                this.camera = new THREE.Camera();
-                this.scene = new THREE.Scene();
+                this.camera = new window.THREE.Camera();
+                this.scene = new window.THREE.Scene();
 
                 // Use MapLibre's WebGL context
-                this.renderer = new THREE.WebGLRenderer({
+                this.renderer = new window.THREE.WebGLRenderer({
                     canvas: map.getCanvas(),
                     context: gl,
                     antialias: true
@@ -1981,10 +1993,10 @@
                 this.renderer.autoClear = false;
 
                 // Add lighting for model visibility
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                const ambientLight = new window.THREE.AmbientLight(0xffffff, 0.6);
                 this.scene.add(ambientLight);
 
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                const directionalLight = new window.THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(0, -70, 100).normalize();
                 this.scene.add(directionalLight);
 
@@ -1996,7 +2008,7 @@
 
             render: function(gl, matrix) {
                 // Update camera with MapLibre's projection matrix
-                this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix);
+                this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
 
                 // Handle smooth position animation
                 if (targetModelPosition && currentModelPosition && activeModel) {
@@ -2078,18 +2090,18 @@
             geometry.computeVertexNormals();
 
             // Create material
-            const material = new THREE.MeshStandardMaterial({
+            const material = new window.THREE.MeshStandardMaterial({
                 color: 0x4285F4, // Blue like current marker
                 metalness: 0.5,
                 roughness: 0.5
             });
 
             // Create mesh
-            const mesh = new THREE.Mesh(geometry, material);
+            const mesh = new window.THREE.Mesh(geometry, material);
 
             // Scale to appropriate size
-            const box = new THREE.Box3().setFromObject(mesh);
-            const size = box.getSize(new THREE.Vector3());
+            const box = new window.THREE.Box3().setFromObject(mesh);
+            const size = box.getSize(new window.THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             const targetSize = 15; // meters
             const scale = targetSize / maxDim;

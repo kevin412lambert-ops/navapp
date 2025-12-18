@@ -2009,14 +2009,18 @@
 
             render: function(gl, matrix) {
                 // Debug logging (once)
-                if (!renderDebugLogged && activeModel) {
-                    console.log('=== 3D Render Debug ===');
-                    console.log('Active model:', activeModel);
-                    console.log('Model position:', activeModel.position);
-                    console.log('Model scale:', activeModel.scale);
-                    console.log('Model rotation:', activeModel.rotation);
+                if (!renderDebugLogged) {
+                    console.log('=== 3D Render Function Called ===');
+                    console.log('activeModel exists:', !!activeModel);
                     console.log('Scene children count:', this.scene.children.length);
-                    console.log('Scene children:', this.scene.children);
+                    if (activeModel) {
+                        console.log('Active model:', activeModel);
+                        console.log('Model position:', activeModel.position);
+                        console.log('Model scale:', activeModel.scale);
+                        console.log('Model rotation:', activeModel.rotation);
+                        console.log('Model visible:', activeModel.visible);
+                        console.log('Scene children:', this.scene.children);
+                    }
                     renderDebugLogged = true;
                 }
 
@@ -2219,12 +2223,14 @@
         async function loadAndDisplayModel(modelKey, lng, lat) {
             console.log('loadAndDisplayModel called:', modelKey, lng, lat);
             console.log('threeJsScene exists:', !!threeJsScene);
+            console.log('map exists:', !!map);
 
             // Check cache first
             if (modelCache[modelKey]) {
                 console.log('Using cached model:', modelKey);
                 activeModel = modelCache[modelKey];
                 threeJsScene.add(activeModel);
+                console.log('Cached mesh added to scene, children:', threeJsScene.children.length);
             } else {
                 // Load STL
                 console.log('Loading STL model:', modelKey);
@@ -2241,7 +2247,7 @@
                 modelCache[modelKey] = mesh;
                 activeModel = mesh;
                 threeJsScene.add(mesh);
-                console.log('Mesh added to scene');
+                console.log('Mesh added to scene, children:', threeJsScene.children.length);
             }
 
             // Position model
@@ -2254,6 +2260,13 @@
             }
 
             console.log('Model setup complete, activeModel:', activeModel);
+            console.log('Triggering map repaint...');
+
+            // Force map to repaint/render
+            if (map) {
+                map.triggerRepaint();
+                console.log('Map repaint triggered');
+            }
         }
 
         // Switch between models

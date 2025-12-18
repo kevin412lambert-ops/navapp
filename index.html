@@ -851,21 +851,6 @@
                     </div>
                 </div>
 
-                <!-- 3D Vehicle Model Selector -->
-                <div class="exits-section" style="margin-top: 15px;">
-                    <div class="exits-header">3D Vehicle Model</div>
-                    <div style="padding: 12px;">
-                        <select id="model-selector" style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                            <option value="old_truck">🚚 Old Truck</option>
-                            <option value="atv">🏍️ ATV</option>
-                            <option value="none">🔵 Simple Dot</option>
-                        </select>
-                        <div id="model-loading-status" style="font-size: 11px; color: #f97316; margin-top: 8px; display: none;">
-                            Loading model...
-                        </div>
-                    </div>
-                </div>
-
                 <!-- 3D Perspective View Controls -->
                 <div class="exits-section" style="margin-top: 15px;">
                     <div class="exits-header">View Mode</div>
@@ -989,30 +974,6 @@
     <!-- MapLibre GL JS -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-    <!-- Import Map for Three.js modules -->
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
-        }
-    }
-    </script>
-
-    <!-- Three.js and STL Loader (ES6 Module) -->
-    <script type="module">
-        import * as THREE from 'three';
-        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-
-        // Make THREE and STLLoader globally available
-        window.THREE = THREE;
-        window.STLLoader = STLLoader;
-        window.STLLoaderReady = true;
-
-        // Dispatch event when ready
-        window.dispatchEvent(new Event('stlloader-ready'));
-    </script>
-
     <script>
         // ==================== PASSWORD PROTECTION ====================
         const CORRECT_PASSWORD = 'TripX9k2'; // Random access password
@@ -1117,24 +1078,6 @@
         const SMOOTHING_FACTOR = 0.3; // Default smoothing factor (0=max smooth, 1=no smooth)
         let stationaryStartTime = null; // Track stationary duration
 
-        // 3D Model State
-        let customLayer3D = null;
-        let threeJsScene = null;
-        let threeJsCamera = null;
-        let threeJsRenderer = null;
-        let activeModel = null;
-        let currentModelKey = 'old_truck'; // Default model
-        let modelCache = {}; // { 'old_truck': mesh, 'atv': mesh }
-        let modelPaths = {
-            'old_truck': '3d_models/Old_Truck.stl',
-            'atv': '3d_models/ATV.stl'
-        };
-        // Animation state for smooth position updates
-        let targetModelPosition = null;
-        let currentModelPosition = null;
-        let modelPositionAnimationStart = null;
-        let renderDebugLogged = false;
-
         // Speed limit caching
         let speedLimitCache = {
             value: null,        // Cached speed limit in mph
@@ -1174,7 +1117,6 @@
             initMapZoomSlider();
             initMapStyleSelector();
             initVehicleTypeSelector();
-            initModelSelector();
             initPerspectiveControls();
             initTextSizeSlider();
             loadSavedColors();
@@ -1454,40 +1396,6 @@
                 if (currentLocation) {
                     checkNearbyOverpasses(currentLocation.lat, currentLocation.lng);
                 }
-            });
-        }
-
-        function initModelSelector() {
-            const selector = document.getElementById('model-selector');
-
-            // Load saved preference
-            const savedModel = localStorage.getItem('selected_model') || 'old_truck';
-            selector.value = savedModel;
-
-            // Handle change
-            selector.addEventListener('change', async (e) => {
-                const newModel = e.target.value;
-                console.log(`Model changed to: ${newModel}`);
-
-                if (newModel === 'none') {
-                    await switch3DToSimpleMarker();
-                } else {
-                    // If switching from simple marker to 3D model
-                    if (!activeModel && userMarker) {
-                        // Remove simple marker first
-                        userMarker.remove();
-                        userMarker = null;
-
-                        // Add 3D layer if not present
-                        if (!map.getLayer('3d-model-layer')) {
-                            map.addLayer(customLayer3D);
-                        }
-                    }
-
-                    await switchModel(newModel);
-                }
-
-                localStorage.setItem('selected_model', newModel);
             });
         }
 
@@ -1972,475 +1880,6 @@
             return smoothedLocation;
         }
 
-        // ==================== 3D MODEL SYSTEM ====================
-
-        // Custom MapLibre layer for rendering 3D models
-        customLayer3D = {
-            id: '3d-model-layer',
-            type: 'custom',
-            renderingMode: '3d',
-
-            onAdd: function(map, gl) {
-                console.log('=== 3D Layer onAdd Called ===');
-                console.log('Map:', map);
-                console.log('GL context:', gl);
-
-                // Initialize Three.js scene with regular Camera
-                // We'll use MapLibre's projection matrix
-                this.camera = new window.THREE.Camera();
-                this.scene = new window.THREE.Scene();
-
-                console.log('Using Camera with MapLibre projection matrix');
-
-                // Use MapLibre's WebGL context
-                this.renderer = new window.THREE.WebGLRenderer({
-                    canvas: map.getCanvas(),
-                    context: gl,
-                    antialias: true
-                });
-                this.renderer.autoClear = false;
-
-                // Set renderer size to match canvas
-                const canvas = map.getCanvas();
-                this.renderer.setSize(canvas.width, canvas.height, false);
-                console.log('Renderer size set to:', canvas.width, 'x', canvas.height);
-
-                // Add lighting for model visibility
-                const ambientLight = new window.THREE.AmbientLight(0xffffff, 0.6);
-                this.scene.add(ambientLight);
-
-                const directionalLight = new window.THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(0, -70, 100).normalize();
-                this.scene.add(directionalLight);
-
-                this.map = map;
-                threeJsScene = this.scene;
-                threeJsCamera = this.camera;
-                threeJsRenderer = this.renderer;
-
-                console.log('Three.js scene initialized:', this.scene);
-                console.log('Scene children (lights):', this.scene.children.length);
-            },
-
-            render: function(gl, matrix) {
-                // ALWAYS log first time to confirm render is called
-                if (!renderDebugLogged) {
-                    console.log('!!! RENDER FUNCTION CALLED !!!');
-                    console.log('activeModel:', activeModel);
-                    console.log('Scene:', this.scene);
-                    console.log('Scene children:', this.scene.children.length);
-                }
-
-                // Debug logging (once)
-                if (!renderDebugLogged) {
-                    console.log('=== 3D Render Function Called ===');
-                    console.log('activeModel exists:', !!activeModel);
-                    console.log('Scene children count:', this.scene.children.length);
-                    if (activeModel) {
-                        console.log('Active model:', activeModel);
-                        console.log('Model position:', activeModel.position);
-                        console.log('Model scale:', activeModel.scale);
-                        console.log('Model rotation:', activeModel.rotation);
-                        console.log('Model visible:', activeModel.visible);
-                        console.log('Scene children:', this.scene.children);
-                    }
-                    renderDebugLogged = true;
-                }
-
-                // Use MapLibre's projection matrix so objects follow the map
-                this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
-
-                // Set camera matrices required by Three.js
-                this.camera.matrixWorldInverse = new window.THREE.Matrix4();
-                this.camera.projectionMatrixInverse = new window.THREE.Matrix4();
-                this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
-
-                // Handle smooth position animation
-                if (targetModelPosition && currentModelPosition && activeModel) {
-                    const now = performance.now();
-                    if (!modelPositionAnimationStart) {
-                        modelPositionAnimationStart = now;
-                    }
-
-                    const elapsed = now - modelPositionAnimationStart;
-                    const progress = Math.min(elapsed / 500, 1); // 500ms animation
-                    const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
-
-                    // Interpolate position
-                    const x = currentModelPosition.x + (targetModelPosition.x - currentModelPosition.x) * easeProgress;
-                    const y = currentModelPosition.y + (targetModelPosition.y - currentModelPosition.y) * easeProgress;
-                    const z = currentModelPosition.z + (targetModelPosition.z - currentModelPosition.z) * easeProgress;
-
-                    activeModel.position.set(x, y, z);
-
-                    if (progress >= 1) {
-                        currentModelPosition = { ...targetModelPosition };
-                        targetModelPosition = null;
-                        modelPositionAnimationStart = null;
-                    }
-                }
-
-                // Render Three.js scene
-                const canvas = this.map.getCanvas();
-                gl.viewport(0, 0, canvas.width, canvas.height);
-
-                // Set up WebGL state for Three.js
-                gl.disable(gl.DEPTH_TEST);
-                gl.disable(gl.CULL_FACE);
-                gl.enable(gl.BLEND);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-                // Reset Three.js renderer state
-                this.renderer.state.reset();
-
-                // Clear to transparent
-                gl.clearColor(0, 0, 0, 0);
-
-                if (!renderDebugLogged) {
-                    console.log('Rendering scene with', this.scene.children.length, 'children');
-                    console.log('Camera:', this.camera);
-                    console.log('Test cube:', window.testCube);
-                    if (window.testCube) {
-                        console.log('Test cube position:', window.testCube.position);
-                        console.log('Test cube scale:', window.testCube.scale);
-                        console.log('Test cube visible:', window.testCube.visible);
-                    }
-                }
-
-                // Render Three.js
-                this.renderer.render(this.scene, this.camera);
-
-                this.map.triggerRepaint();
-            },
-
-            onRemove: function() {
-                // Cleanup Three.js resources
-                if (this.renderer) {
-                    this.renderer.dispose();
-                }
-            }
-        };
-
-        // Wait for STLLoader to be ready
-        function waitForSTLLoader() {
-            return new Promise((resolve) => {
-                if (window.STLLoaderReady && window.STLLoader) {
-                    resolve();
-                } else {
-                    window.addEventListener('stlloader-ready', () => resolve(), { once: true });
-                }
-            });
-        }
-
-        // Load STL file
-        async function loadSTLModel(modelKey) {
-            try {
-                console.log('loadSTLModel - Starting for:', modelKey);
-                console.log('Model path:', modelPaths[modelKey]);
-                showModelLoadingIndicator(true);
-
-                // Wait for STLLoader to be available
-                console.log('Waiting for STLLoader...');
-                await waitForSTLLoader();
-                console.log('STLLoader ready:', !!window.STLLoader);
-
-                const loader = new window.STLLoader();
-                console.log('STLLoader instance created, loading file...');
-                const geometry = await loader.loadAsync(modelPaths[modelKey]);
-                console.log('Geometry loaded:', geometry);
-
-                showModelLoadingIndicator(false);
-                return geometry;
-            } catch (error) {
-                console.error('Failed to load model:', error);
-                console.error('Error details:', error.message, error.stack);
-                showModelLoadingIndicator(false);
-                alert('Failed to load 3D model. Reverting to simple marker.');
-                const selector = document.getElementById('model-selector');
-                if (selector) selector.value = 'none';
-                switch3DToSimpleMarker();
-                return null;
-            }
-        }
-
-        // Create mesh from geometry (position will be set later with proper scale)
-        function createMeshFromGeometry(geometry) {
-            // Compute normals for proper lighting
-            geometry.computeVertexNormals();
-
-            // Create material
-            const material = new window.THREE.MeshStandardMaterial({
-                color: 0x4285F4, // Blue like current marker
-                metalness: 0.5,
-                roughness: 0.5
-            });
-
-            // Create mesh
-            const mesh = new window.THREE.Mesh(geometry, material);
-
-            // Don't scale yet - we'll scale when positioning based on Mercator units
-            // Just normalize to a base size
-            const box = new window.THREE.Box3().setFromObject(mesh);
-            const size = box.getSize(new window.THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const normalizeScale = 1.0 / maxDim; // Normalize to 1 unit
-            mesh.scale.set(normalizeScale, normalizeScale, normalizeScale);
-
-            // Set initial orientation (may need adjustment after testing)
-            mesh.rotation.x = -Math.PI / 2; // Lay flat if standing vertical
-
-            return mesh;
-        }
-
-        // Convert lng/lat to Three.js scene coordinates
-        function lngLatToModelSpace(lng, lat) {
-            const mc = maplibregl.MercatorCoordinate.fromLngLat([lng, lat], 0);
-
-            // Get the scale factor to convert meters to Mercator units at this latitude
-            const metersToMercator = mc.meterInMercatorCoordinateUnits();
-
-            return {
-                x: mc.x,
-                y: mc.y,
-                z: 0,
-                metersToMercator: metersToMercator
-            };
-        }
-
-        // Update 3D model position
-        function update3DModelPosition(lng, lat) {
-            if (!activeModel) {
-                console.log('update3DModelPosition: No active model');
-                return;
-            }
-
-            const pos = lngLatToModelSpace(lng, lat);
-            console.log('update3DModelPosition:', lng, lat, '->', pos);
-
-            // Scale MASSIVELY - 10x larger
-            const currentZoom = map.getZoom();
-            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * 100 * 10000; // 100m × 10000 multiplier
-
-            activeModel.scale.setScalar(scale);
-
-            // Disable culling so it renders from any angle
-            if (activeModel.material) {
-                activeModel.material.side = window.THREE.DoubleSide;
-            }
-
-            console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
-
-            // LARGE fixed z-offset
-            const zOffset = 0.01;
-
-            // Set target for smooth animation
-            targetModelPosition = { x: pos.x, y: pos.y, z: zOffset };
-            if (!currentModelPosition) {
-                currentModelPosition = { x: pos.x, y: pos.y, z: zOffset };
-                activeModel.position.set(pos.x, pos.y, zOffset);
-                console.log('Model position set to:', activeModel.position, 'z:', zOffset);
-            } else {
-                modelPositionAnimationStart = performance.now();
-            }
-        }
-
-        // Update 3D model rotation based on GPS heading
-        function update3DModelRotation(headingDegrees) {
-            if (!activeModel) return;
-            const headingRadians = (headingDegrees * Math.PI) / 180;
-            activeModel.rotation.z = headingRadians;
-        }
-
-        // Convert model space coordinates back to lng/lat
-        function modelSpaceToLngLat(x, y) {
-            const mc = new maplibregl.MercatorCoordinate(x, y, 0);
-            return mc.toLngLat();
-        }
-
-        // Get current marker position (works for both 3D model and simple marker)
-        function getCurrentMarkerPosition() {
-            if (activeModel && currentModelPosition) {
-                const lngLat = modelSpaceToLngLat(currentModelPosition.x, currentModelPosition.y);
-                return { lng: lngLat.lng, lat: lngLat.lat };
-            } else if (userMarker) {
-                return userMarker.getLngLat();
-            }
-            return null;
-        }
-
-        // Set marker position (works for both 3D model and simple marker)
-        function setMarkerPosition(lng, lat) {
-            if (activeModel) {
-                update3DModelPosition(lng, lat);
-            } else if (userMarker) {
-                userMarker.setLngLat([lng, lat]);
-            }
-        }
-
-        // Initialize 3D model on first GPS lock
-        async function init3DModel(lng, lat) {
-            // Load saved model preference or default to truck
-            currentModelKey = localStorage.getItem('selected_model') || 'old_truck';
-
-            if (currentModelKey === 'none') {
-                // User prefers simple marker
-                createSimpleMarker(lng, lat);
-                return;
-            }
-
-            // Add custom 3D layer to map
-            console.log('Adding 3D layer to map...');
-            console.log('Layer object:', customLayer3D);
-            console.log('Map has layer already?', map.getLayer('3d-model-layer'));
-
-            if (!map.getLayer('3d-model-layer')) {
-                map.addLayer(customLayer3D);
-                console.log('3D layer added to map');
-            } else {
-                console.log('3D layer already exists on map');
-            }
-
-            // Load and add model
-            await loadAndDisplayModel(currentModelKey, lng, lat);
-        }
-
-        // Load and display a model
-        async function loadAndDisplayModel(modelKey, lng, lat) {
-            console.log('loadAndDisplayModel called:', modelKey, lng, lat);
-            console.log('threeJsScene exists:', !!threeJsScene);
-            console.log('map exists:', !!map);
-
-            // Check cache first
-            if (modelCache[modelKey]) {
-                console.log('Using cached model:', modelKey);
-                activeModel = modelCache[modelKey];
-                threeJsScene.add(activeModel);
-                console.log('Cached mesh added to scene, children:', threeJsScene.children.length);
-            } else {
-                // Load STL
-                console.log('Loading STL model:', modelKey);
-                const geometry = await loadSTLModel(modelKey);
-                if (!geometry) {
-                    console.error('Failed to load geometry');
-                    return; // Error handled in loadSTLModel
-                }
-
-                console.log('STL loaded successfully, creating mesh');
-                // Create mesh
-                const mesh = createMeshFromGeometry(geometry);
-                console.log('Mesh created:', mesh);
-                modelCache[modelKey] = mesh;
-                activeModel = mesh;
-                threeJsScene.add(mesh);
-                console.log('Mesh added to scene, children:', threeJsScene.children.length);
-            }
-
-            // Position model
-            console.log('Setting model position:', lng, lat);
-            update3DModelPosition(lng, lat);
-
-            // Set initial rotation
-            if (currentLocation && currentLocation.heading) {
-                update3DModelRotation(currentLocation.heading);
-            }
-
-            console.log('Model setup complete, activeModel:', activeModel);
-            console.log('Triggering map repaint...');
-
-            // Reset render debug flag so we can see debug output
-            renderDebugLogged = false;
-
-            // Force map to repaint/render
-            if (map) {
-                map.triggerRepaint();
-                console.log('Map repaint triggered');
-            }
-        }
-
-        // Switch between models
-        async function switchModel(newModelKey) {
-            if (!currentLocation) return;
-
-            console.log('switchModel called:', newModelKey);
-            console.log('Layer exists on map?', !!map.getLayer('3d-model-layer'));
-
-            // Ensure 3D layer is added to map
-            if (!map.getLayer('3d-model-layer')) {
-                console.log('Adding 3D layer to map in switchModel...');
-                map.addLayer(customLayer3D);
-                console.log('Layer added');
-            }
-
-            // Remove current model from scene
-            if (activeModel && threeJsScene) {
-                console.log('Removing previous model from scene');
-                threeJsScene.remove(activeModel);
-            }
-
-            // Reset position tracking for new model
-            currentModelPosition = null;
-            targetModelPosition = null;
-            modelPositionAnimationStart = null;
-
-            // Load and display new model
-            currentModelKey = newModelKey;
-            await loadAndDisplayModel(newModelKey, currentLocation.smoothedLng || currentLocation.lng, currentLocation.smoothedLat || currentLocation.lat);
-        }
-
-        // Switch from 3D model to simple marker
-        async function switch3DToSimpleMarker() {
-            // Remove 3D layer
-            if (map.getLayer('3d-model-layer')) {
-                map.removeLayer('3d-model-layer');
-            }
-
-            if (activeModel) {
-                threeJsScene.remove(activeModel);
-                activeModel = null;
-            }
-
-            // Create simple marker at current location
-            if (currentLocation) {
-                createSimpleMarker(
-                    currentLocation.smoothedLng || currentLocation.lng,
-                    currentLocation.smoothedLat || currentLocation.lat
-                );
-            }
-        }
-
-        // Create simple blue dot marker
-        function createSimpleMarker(lng, lat) {
-            // Remove existing marker if any
-            if (userMarker) {
-                userMarker.remove();
-                userMarker = null;
-            }
-
-            const markerEl = document.createElement('div');
-            markerEl.className = 'user-marker';
-            markerEl.style.width = '20px';
-            markerEl.style.height = '20px';
-            markerEl.style.borderRadius = '50%';
-            markerEl.style.backgroundColor = '#4285F4';
-            markerEl.style.border = '3px solid #ffffff';
-            markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
-
-            userMarker = new maplibregl.Marker({
-                element: markerEl,
-                anchor: 'center'
-            })
-            .setLngLat([lng, lat])
-            .addTo(map);
-        }
-
-        // Show/hide model loading indicator
-        function showModelLoadingIndicator(show) {
-            const indicator = document.getElementById('model-loading-status');
-            if (indicator) {
-                indicator.style.display = show ? 'block' : 'none';
-            }
-        }
-
         // ==================== MAP MARKER ====================
         function animateMarkerAlongRoad() {
             // Cancel any ongoing animation
@@ -2487,7 +1926,7 @@
 
                     if (newPosition) {
                         // Update marker position
-                        setMarkerPosition(newPosition.lng, newPosition.lat);
+                        userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
 
                         // Update cache
                         roadGeometryCache.currentPosition = newPosition;
@@ -2501,15 +1940,13 @@
 
                 // Fallback: straight-line extrapolation if no road geometry
                 if (currentVelocity.lat !== 0 || currentVelocity.lng !== 0) {
-                    const currentPos = getCurrentMarkerPosition();
-                    if (currentPos) {
-                        const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
-                        const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
+                    const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
+                    const lat = currentPos.lat + (currentVelocity.lat * elapsedSinceLastUpdate);
+                    const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
 
-                        setMarkerPosition(lng, lat);
-                        isExtrapolating = true;
-                        markerAnimation = requestAnimationFrame(animate);
-                    }
+                    userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+                    isExtrapolating = true;
+                    markerAnimation = requestAnimationFrame(animate);
                 }
             }
 
@@ -2523,9 +1960,7 @@
                 markerAnimation = null;
             }
 
-            const currentPos = getCurrentMarkerPosition();
-            if (!currentPos) return;
-
+            const currentPos = userMarker.getLngLat(); // Returns {lng, lat}
             const startLat = currentPos.lat;
             const startLng = currentPos.lng;
             const startTime = performance.now();
@@ -2538,7 +1973,7 @@
                 const lat = startLat + (targetLat - startLat) * easeProgress;
                 const lng = startLng + (targetLng - startLng) * easeProgress;
 
-                setMarkerPosition(lng, lat);
+                userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
 
                 if (progress < 1) {
                     markerAnimation = requestAnimationFrame(animate);
@@ -2580,10 +2015,9 @@
             // Map-match GPS to road
             const matchedPosition = findNearestPointOnRoad(newLat, newLng, roadGeometryCache.segments);
 
-            if (userMarker || activeModel) {
+            if (userMarker) {
                 // Get current marker position
-                const currentLatLng = getCurrentMarkerPosition();
-                if (!currentLatLng) return;
+                const currentLatLng = userMarker.getLngLat(); // Returns {lng, lat}
                 const currentLat = currentLatLng.lat;
                 const currentLng = currentLatLng.lng;
 
@@ -2650,12 +2084,26 @@
                     smoothTransitionTo(newLat, newLng, 500);
                 }
             } else {
-                // First time: create marker (3D model or simple dot)
+                // First time: create marker
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 
-                // Initialize 3D model or simple marker based on user preference
-                await init3DModel(initialLng, initialLat);
+                // Create custom marker element for MapLibre
+                const markerEl = document.createElement('div');
+                markerEl.className = 'user-marker';
+                markerEl.style.width = '20px';
+                markerEl.style.height = '20px';
+                markerEl.style.borderRadius = '50%';
+                markerEl.style.backgroundColor = '#4285F4';
+                markerEl.style.border = '3px solid #ffffff';
+                markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
+
+                userMarker = new maplibregl.Marker({
+                    element: markerEl,
+                    anchor: 'center'
+                })
+                .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
+                .addTo(map);
 
                 // Enable 3D perspective mode on first GPS lock
                 // First check if zoom is sufficient
@@ -4033,11 +3481,6 @@
             }
 
             lastBearing = heading;
-
-            // Rotate 3D model if active
-            if (activeModel) {
-                update3DModelRotation(heading);
-            }
 
             // Smoothly rotate map to match heading
             map.easeTo({

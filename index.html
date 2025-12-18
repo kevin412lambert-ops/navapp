@@ -2178,11 +2178,13 @@
             console.log('update3DModelPosition:', lng, lat, '->', pos);
             console.log('Meters to Mercator scale:', pos.metersToMercator);
 
-            // Apply proper scale: 15 meters in Mercator coordinate units
+            // Apply scale based on map zoom and Mercator coordinates
+            const currentZoom = map.getZoom();
             const targetSizeMeters = 15;
-            const mercatorScale = targetSizeMeters * pos.metersToMercator;
-            activeModel.scale.setScalar(mercatorScale);
-            console.log('Model scaled to:', mercatorScale);
+            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters;
+
+            activeModel.scale.setScalar(scale);
+            console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
 
             // Set target for smooth animation
             targetModelPosition = pos;

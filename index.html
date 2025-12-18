@@ -1701,11 +1701,22 @@
             const coords = position.coords;
             const now = performance.now();
 
-            // Filter out low-accuracy GPS readings
+            // Filter out low-accuracy GPS readings (but allow initial GPS lock)
             const GPS_ACCURACY_THRESHOLD = 50; // meters
-            if (coords.accuracy > GPS_ACCURACY_THRESHOLD) {
-                console.log(`GPS accuracy too low (${coords.accuracy}m), ignoring update`);
-                return;
+            const GPS_INIT_ACCURACY_THRESHOLD = 200; // meters (more lenient for first reading)
+
+            if (currentLocation) {
+                // GPS already initialized - apply strict filtering
+                if (coords.accuracy > GPS_ACCURACY_THRESHOLD) {
+                    console.log(`GPS accuracy too low (${coords.accuracy}m), ignoring update`);
+                    return;
+                }
+            } else {
+                // First GPS reading - be more lenient to allow initialization
+                if (coords.accuracy > GPS_INIT_ACCURACY_THRESHOLD) {
+                    console.log(`Initial GPS accuracy too low (${coords.accuracy}m), waiting for better signal`);
+                    return;
+                }
             }
 
             // Track GPS update intervals for adaptive animation

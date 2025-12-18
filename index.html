@@ -2263,6 +2263,13 @@
             console.log('threeJsScene exists:', !!threeJsScene);
             console.log('map exists:', !!map);
 
+            // TEMPORARY: Clear cache to force reload with new scaling logic
+            // TODO: Remove this after testing
+            if (modelCache[modelKey]) {
+                console.log('Clearing cached model to force reload with new scale');
+                delete modelCache[modelKey];
+            }
+
             // Check cache first
             if (modelCache[modelKey]) {
                 console.log('Using cached model:', modelKey);

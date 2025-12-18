@@ -2289,8 +2289,19 @@
         async function switchModel(newModelKey) {
             if (!currentLocation) return;
 
+            console.log('switchModel called:', newModelKey);
+            console.log('Layer exists on map?', !!map.getLayer('3d-model-layer'));
+
+            // Ensure 3D layer is added to map
+            if (!map.getLayer('3d-model-layer')) {
+                console.log('Adding 3D layer to map in switchModel...');
+                map.addLayer(customLayer3D);
+                console.log('Layer added');
+            }
+
             // Remove current model from scene
-            if (activeModel) {
+            if (activeModel && threeJsScene) {
+                console.log('Removing previous model from scene');
                 threeJsScene.remove(activeModel);
             }
 

@@ -2217,16 +2217,21 @@
             const pos = lngLatToModelSpace(lng, lat);
             console.log('update3DModelPosition:', lng, lat, '->', pos);
 
-            // Scale for MapLibre's projection matrix (needs to be MUCH larger)
+            // Scale MASSIVELY - 10x larger
             const currentZoom = map.getZoom();
-            const targetSizeMeters = 50; // 50 meters
-            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * targetSizeMeters * 1000;
+            const scale = Math.pow(2, currentZoom) * pos.metersToMercator * 100 * 10000; // 100m × 10000 multiplier
 
             activeModel.scale.setScalar(scale);
+
+            // Disable culling so it renders from any angle
+            if (activeModel.material) {
+                activeModel.material.side = window.THREE.DoubleSide;
+            }
+
             console.log('Model scaled to:', scale, 'at zoom:', currentZoom);
 
-            // Position with small z-offset
-            const zOffset = pos.metersToMercator * 5; // 5 meters above ground
+            // LARGE fixed z-offset
+            const zOffset = 0.01;
 
             // Set target for smooth animation
             targetModelPosition = { x: pos.x, y: pos.y, z: zOffset };

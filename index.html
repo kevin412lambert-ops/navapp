@@ -1560,7 +1560,42 @@
                         autoRotationEnabled = savedAutoRotationState;
 
                         console.log(`Re-enabling 3D perspective at zoom level >= 16 (auto-rotation: ${autoRotationEnabled})`);
-                        enablePerspectiveMode();
+
+                        // Manually re-enable perspective mode
+                        perspectiveMode = true;
+
+                        // Calculate center and offset for 3D mode
+                        const container = map.getContainer();
+                        const containerHeight = container.offsetHeight;
+                        const yOffset = containerHeight * 0.25;
+
+                        // Determine bearing
+                        const bearing = (autoRotationEnabled && lastBearing !== null) ? lastBearing : 0;
+
+                        // Combine all animations into a single easeTo call
+                        if (currentLocation) {
+                            map.easeTo({
+                                pitch: 45,
+                                bearing: bearing,
+                                center: [currentLocation.lng, currentLocation.lat],
+                                offset: [0, yOffset],
+                                duration: 800
+                            });
+                        } else {
+                            map.easeTo({
+                                pitch: 45,
+                                bearing: bearing,
+                                duration: 800
+                            });
+                        }
+
+                        // Update localStorage and UI
+                        localStorage.setItem('perspective_mode', 'true');
+                        const autoRotationCheckbox = document.getElementById('auto-rotation-checkbox');
+                        if (autoRotationCheckbox) {
+                            autoRotationCheckbox.checked = autoRotationEnabled;
+                        }
+                        updatePerspectiveButton();
                     }
                 }
             });

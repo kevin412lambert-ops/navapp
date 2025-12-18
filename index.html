@@ -1373,6 +1373,15 @@
             const toggleButton = document.getElementById('perspective-toggle');
             const autoRotationCheckbox = document.getElementById('auto-rotation-checkbox');
 
+            console.log('initPerspectiveControls called');
+            console.log('toggleButton:', toggleButton);
+            console.log('autoRotationCheckbox:', autoRotationCheckbox);
+
+            if (!toggleButton) {
+                console.error('perspective-toggle button not found!');
+                return;
+            }
+
             // Load saved preferences (default to enabled)
             const savedPerspectiveMode = localStorage.getItem('perspective_mode') !== 'false';
             const savedAutoRotation = localStorage.getItem('auto_rotation') !== 'false';
@@ -1401,7 +1410,9 @@
             }
 
             // Toggle button click handler
+            console.log('Attaching click event listener to perspective toggle button');
             toggleButton.addEventListener('click', () => {
+                console.log('BUTTON CLICKED!!!');
                 togglePerspectiveMode();
             });
 

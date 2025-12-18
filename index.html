@@ -1040,6 +1040,7 @@
         let autoRotationEnabled = false; // Auto-rotation when driving
         let lastBearing = null; // Last heading to prevent unnecessary updates
         let perspectiveDisabledByZoom = false; // Track if perspective was auto-disabled due to zoom level
+        let savedAutoRotationState = false; // Save auto-rotation state when auto-disabling perspective
 
         let currentLocation = null;
         let previousLocation = null;
@@ -1521,15 +1522,44 @@
                 if (currentZoom < 16) {
                     // Zoomed out too far - disable perspective if it's on
                     if (perspectiveMode && !perspectiveDisabledByZoom) {
+                        // Save current auto-rotation state before disabling
+                        savedAutoRotationState = autoRotationEnabled;
                         perspectiveDisabledByZoom = true;
                         console.log('Auto-disabling 3D perspective due to zoom level < 16');
-                        disablePerspectiveMode();
+
+                        // Manually disable perspective without calling disablePerspectiveMode
+                        // to preserve auto-rotation state in memory
+                        perspectiveMode = false;
+
+                        if (currentLocation) {
+                            map.easeTo({
+                                pitch: 0,
+                                bearing: 0,
+                                center: [currentLocation.lng, currentLocation.lat],
+                                offset: [0, 0],
+                                duration: 800
+                            });
+                        } else {
+                            map.easeTo({
+                                pitch: 0,
+                                bearing: 0,
+                                duration: 800
+                            });
+                        }
+
+                        // Update UI but don't modify auto-rotation state
+                        updatePerspectiveButton();
+                        localStorage.setItem('perspective_mode', 'false');
                     }
                 } else {
                     // Zoomed in enough - re-enable perspective if it was auto-disabled
                     if (perspectiveDisabledByZoom) {
                         perspectiveDisabledByZoom = false;
-                        console.log('Re-enabling 3D perspective at zoom level >= 16');
+
+                        // Restore saved auto-rotation state
+                        autoRotationEnabled = savedAutoRotationState;
+
+                        console.log(`Re-enabling 3D perspective at zoom level >= 16 (auto-rotation: ${autoRotationEnabled})`);
                         enablePerspectiveMode();
                     }
                 }
@@ -1857,6 +1887,33 @@
                 })
                 .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
                 .addTo(map);
+
+                // Enable 3D perspective mode on first GPS lock
+                // First check if zoom is sufficient
+                const currentZoom = map.getZoom();
+                if (currentZoom >= 16) {
+                    // Enable perspective mode and auto-rotation
+                    perspectiveMode = true;
+                    autoRotationEnabled = true;
+
+                    // Apply 3D pitch to the map
+                    map.setPitch(45);
+
+                    // Update localStorage
+                    localStorage.setItem('perspective_mode', 'true');
+                    localStorage.setItem('auto_rotation', 'true');
+
+                    // Update UI
+                    const autoRotationCheckbox = document.getElementById('auto-rotation-checkbox');
+                    if (autoRotationCheckbox) {
+                        autoRotationCheckbox.checked = true;
+                    }
+                    updatePerspectiveButton();
+
+                    console.log('GPS established - enabling 3D perspective mode with auto-rotation');
+                } else {
+                    console.log('GPS established - zoom level too low for 3D perspective, staying in 2D mode');
+                }
 
                 // Center map on initial position with appropriate offset
                 centerMapOnUser(false);
@@ -3094,6 +3151,7 @@
 
                 // Enable auto-rotation checkbox
                 checkbox.disabled = false;
+                checkbox.checked = autoRotationEnabled;
                 checkbox.parentElement.parentElement.querySelector('label').style.color = '#e0e0e0';
             } else {
                 // 2D mode - gray/inactive styling
@@ -3104,10 +3162,17 @@
 
                 // Disable auto-rotation checkbox
                 checkbox.disabled = true;
-                checkbox.checked = false;
-                autoRotationEnabled = false;
-                localStorage.setItem('auto_rotation', 'false');
                 checkbox.parentElement.parentElement.querySelector('label').style.color = '#999';
+
+                // Only modify auto-rotation state if this is a manual disable (not auto-disabled by zoom)
+                if (!perspectiveDisabledByZoom) {
+                    checkbox.checked = false;
+                    autoRotationEnabled = false;
+                    localStorage.setItem('auto_rotation', 'false');
+                } else {
+                    // Keep checkbox showing saved state during auto-disable
+                    checkbox.checked = savedAutoRotationState;
+                }
             }
         }
 

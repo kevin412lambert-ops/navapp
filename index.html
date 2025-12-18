@@ -1035,6 +1035,12 @@
         let lastOverpassCheck = null; // Last GPS position where we checked
         let activeOverpassAlert = null; // Currently displayed alert
 
+        // Radar Animation State
+        let radarFrames = []; // Array of radar frame timestamps
+        let radarHost = ''; // RainViewer host URL
+        let currentRadarFrame = 0; // Current frame index
+        let radarAnimationInterval = null; // Animation interval ID
+
         // 3D Perspective View State
         let perspectiveMode = false; // Current view mode (false = 2D, true = 3D)
         let autoRotationEnabled = false; // Auto-rotation when driving
@@ -1509,6 +1515,7 @@
             map.on('load', () => {
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
+                startRadarRefresh(); // Start periodic radar refresh
                 addDecorativeTrees(savedStyle); // Add trees if cartoon/holiday theme
 
                 // Initialize house number layer
@@ -2832,17 +2839,20 @@
 
                 const data = await response.json();
 
-                // Get the latest radar frame (most recent past frame)
+                // Get all past radar frames
                 if (!data.radar || !data.radar.past || data.radar.past.length === 0) {
                     console.error('No radar data available');
                     return;
                 }
 
-                // Use the most recent frame
-                const latestFrame = data.radar.past[data.radar.past.length - 1];
+                // Store frames and host for animation
+                radarFrames = data.radar.past;
+                radarHost = data.host;
+                currentRadarFrame = 0;
 
-                // Construct tile URL
-                const tileUrl = `${data.host}${latestFrame.path}/256/{z}/{x}/{y}/6/1_1.png`;
+                // Use the first frame initially
+                const firstFrame = radarFrames[0];
+                const tileUrl = `${radarHost}${firstFrame.path}/256/{z}/{x}/{y}/6/1_1.png`;
 
                 // Remove existing radar layer/source if present
                 if (map.getLayer('radar-layer')) {
@@ -2858,7 +2868,7 @@
                     tiles: [tileUrl],
                     tileSize: 256,
                     minzoom: 0,
-                    maxzoom: 8  // RainViewer provides tiles up to zoom 8
+                    maxzoom: 19  // Allow radar at all zoom levels
                 });
 
                 // Get current opacity from slider
@@ -2875,14 +2885,67 @@
                     type: 'raster',
                     source: 'radar',
                     paint: {
-                        'raster-opacity': currentOpacity
+                        'raster-opacity': currentOpacity,
+                        'raster-fade-duration': 0  // Disable fade for smoother animation
                     }
                 }, firstSymbolLayer ? firstSymbolLayer.id : undefined);
 
-                console.log('Radar overlay loaded successfully');
+                console.log(`Radar overlay loaded with ${radarFrames.length} frames`);
+
+                // Start animation
+                startRadarAnimation();
             } catch (error) {
                 console.error('Error loading radar:', error);
             }
+        }
+
+        // Start radar animation loop
+        function startRadarAnimation() {
+            // Clear any existing animation
+            if (radarAnimationInterval) {
+                clearInterval(radarAnimationInterval);
+            }
+
+            // Only animate if we have multiple frames
+            if (radarFrames.length < 2) {
+                console.log('Not enough frames for animation');
+                return;
+            }
+
+            // Animate at 500ms per frame (2 FPS for smooth radar animation)
+            radarAnimationInterval = setInterval(() => {
+                if (!map || !map.getSource('radar')) {
+                    clearInterval(radarAnimationInterval);
+                    return;
+                }
+
+                // Move to next frame
+                currentRadarFrame = (currentRadarFrame + 1) % radarFrames.length;
+                const frame = radarFrames[currentRadarFrame];
+                const tileUrl = `${radarHost}${frame.path}/256/{z}/{x}/{y}/6/1_1.png`;
+
+                // Update the source tiles
+                map.getSource('radar').setTiles([tileUrl]);
+            }, 500);  // 500ms per frame
+
+            console.log('Radar animation started');
+        }
+
+        // Stop radar animation
+        function stopRadarAnimation() {
+            if (radarAnimationInterval) {
+                clearInterval(radarAnimationInterval);
+                radarAnimationInterval = null;
+                console.log('Radar animation stopped');
+            }
+        }
+
+        // Refresh radar data periodically (every 10 minutes)
+        function startRadarRefresh() {
+            setInterval(() => {
+                console.log('Refreshing radar data...');
+                loadRadar();
+            }, 600000); // 10 minutes
         }
 
         // ==================== OVERPASS HEIGHT DETECTION ====================
@@ -3413,7 +3476,9 @@
 
             const treeMarker = new maplibregl.Marker({
                 element: treeEl,
-                anchor: 'bottom'
+                anchor: 'bottom',
+                pitchAlignment: 'viewport',
+                rotationAlignment: 'viewport'
             })
             .setLngLat([lng, lat])
             .addTo(map);
@@ -3460,7 +3525,7 @@
             const treeEmoji = themeName.includes('holiday') ? '🎄' : '🌲';
 
             // Constants
-            const TREE_COUNT = 30;
+            const TREE_COUNT = 40;
             const RADIUS_MILES = 1;
             const RADIUS_DEGREES = RADIUS_MILES / 69; // Approximate conversion (69 miles per degree at equator)
 
@@ -3474,7 +3539,7 @@
                 Math.round(centerLng * 1000) / 1000
             );
 
-            // Generate 30 tree positions
+            // Generate 40 tree positions
             const treePositions = [];
             for (let i = 0; i < TREE_COUNT; i++) {
                 // Use seeded random for deterministic placement
@@ -3650,7 +3715,7 @@
         // Fetch buildings with house numbers from Overpass API
         async function fetchBuildingsFromOverpass(bounds) {
             const query = `
-                [out:json][timeout:10];
+                [out:json][timeout:25];
                 (
                     way["building"]["addr:housenumber"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
                     relation["building"]["addr:housenumber"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
@@ -3658,19 +3723,43 @@
                 out center;
             `;
 
-            const response = await fetch('https://overpass-api.de/api/interpreter', {
-                method: 'POST',
-                body: query,
-                headers: { 'Content-Type': 'text/plain' }
-            });
+            // Try multiple Overpass API servers as fallbacks
+            const servers = [
+                'https://overpass-api.de/api/interpreter',
+                'https://overpass.kumi.systems/api/interpreter',
+                'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+            ];
 
-            if (!response.ok) {
-                throw new Error(`Overpass API error: ${response.status}`);
+            let lastError = null;
+
+            for (const server of servers) {
+                try {
+                    console.log(`Trying Overpass server: ${server}`);
+                    const response = await fetch(server, {
+                        method: 'POST',
+                        body: query,
+                        headers: { 'Content-Type': 'text/plain' }
+                    });
+
+                    if (!response.ok) {
+                        lastError = new Error(`Overpass API error: ${response.status}`);
+                        console.warn(`${server} returned ${response.status}, trying next server...`);
+                        continue;
+                    }
+
+                    const data = await response.json();
+                    console.log(`✓ Fetched ${data.elements.length} buildings with house numbers from ${server}`);
+                    return data;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`${server} failed:`, error.message);
+                    // Try next server
+                }
             }
 
-            const data = await response.json();
-            console.log(`Fetched ${data.elements.length} buildings with house numbers from Overpass API`);
-            return data;
+            // All servers failed
+            console.error('All Overpass API servers failed');
+            throw lastError || new Error('All Overpass API servers unavailable');
         }
 
         // Transform Overpass data to GeoJSON
@@ -3780,8 +3869,18 @@
                 // Update the layer
                 updateHouseNumberLayer(geojson);
             } catch (error) {
-                console.error('Error fetching buildings:', error);
-                // Update with empty data on error
+                console.error('Error fetching buildings:', error.message || error);
+
+                // Provide user-friendly feedback
+                if (error.message && error.message.includes('504')) {
+                    console.warn('⚠️ Overpass API is slow/overloaded. House numbers will retry on next pan/zoom.');
+                } else if (error.message && error.message.includes('unavailable')) {
+                    console.warn('⚠️ All Overpass API servers are currently unavailable. House numbers will retry later.');
+                } else {
+                    console.warn('⚠️ Unable to load house numbers for this area. Try panning slightly to retry.');
+                }
+
+                // Update with empty data on error (graceful degradation)
                 updateHouseNumberLayer({ type: 'FeatureCollection', features: [] });
             }
         }

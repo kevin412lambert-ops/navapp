@@ -1028,8 +1028,8 @@
         let map = null;
         let userMarker = null;
         let exitMarkers = [];
-        let decorativeTreeMarkers = new Map(); // Store tree markers by grid key for persistence
-        let treesDisabledAtZoom = null; // Track zoom level where trees were disabled due to exceeding 200
+        let decorativeTreeMarkers = new Map(); // Store tree markers by tree key for persistence
+        let lastTreeUpdateLocation = null; // Track last GPS location where trees were updated
 
         let nearbyOverpasses = []; // Store detected overpasses
         let lastOverpassCheck = null; // Last GPS position where we checked
@@ -3392,129 +3392,117 @@
                 themeName.includes('holiday')
             );
 
-            if (!shouldShowTrees || !map) {
-                // Clear all trees if wrong theme
+            if (!shouldShowTrees || !map || !currentLocation) {
+                // Clear all trees if wrong theme or no GPS
                 decorativeTreeMarkers.forEach(marker => marker.remove());
                 decorativeTreeMarkers.clear();
-                treesDisabledAtZoom = null; // Reset disabled state
+                lastTreeUpdateLocation = null;
                 return;
             }
 
-            // Get current zoom level
-            const currentZoom = map.getZoom();
-
-            // Check if trees were disabled due to exceeding 200
-            if (treesDisabledAtZoom !== null) {
-                // Trees are disabled - check if we've zoomed in enough to re-enable
-                if (currentZoom >= treesDisabledAtZoom + 2) {
-                    // Zoomed in at least 2 levels from where we disabled - re-enable trees
-                    console.log(`Re-enabling trees at zoom ${currentZoom.toFixed(1)} (was disabled at ${treesDisabledAtZoom.toFixed(1)})`);
-                    treesDisabledAtZoom = null;
-                } else {
-                    // Still too zoomed out - keep trees disabled
-                    return;
+            // Only update trees if we've moved significantly (> 0.1 miles)
+            if (lastTreeUpdateLocation) {
+                const distanceMoved = calculateDistance(
+                    lastTreeUpdateLocation.lat,
+                    lastTreeUpdateLocation.lng,
+                    currentLocation.lat,
+                    currentLocation.lng
+                );
+                if (distanceMoved < 0.1) {
+                    return; // Not far enough, keep existing trees
                 }
             }
+
+            // Update last tree location
+            lastTreeUpdateLocation = {
+                lat: currentLocation.lat,
+                lng: currentLocation.lng
+            };
 
             // Determine which emoji to use
             const treeEmoji = themeName.includes('holiday') ? '🎄' : '🌲';
 
-            // Get current map bounds with buffer for smoother loading
-            const bounds = map.getBounds();
-            const sw = bounds.getSouthWest();
-            const ne = bounds.getNorthEast();
+            // Constants
+            const TREE_COUNT = 30;
+            const RADIUS_MILES = 1;
+            const RADIUS_DEGREES = RADIUS_MILES / 69; // Approximate conversion (69 miles per degree at equator)
 
-            // Add 20% buffer around viewport
-            const lngBuffer = (ne.lng - sw.lng) * 0.2;
-            const latBuffer = (ne.lat - sw.lat) * 0.2;
+            // Use GPS location as center
+            const centerLat = currentLocation.lat;
+            const centerLng = currentLocation.lng;
 
-            const minLng = sw.lng - lngBuffer;
-            const maxLng = ne.lng + lngBuffer;
-            const minLat = sw.lat - latBuffer;
-            const maxLat = ne.lat + latBuffer;
-
-            // Grid spacing (approximately 200-300 meters between potential tree positions)
-            const gridSize = 0.002; // degrees (roughly 200m at mid-latitudes)
-
-            // Round to grid cells
-            const startLng = Math.floor(minLng / gridSize) * gridSize;
-            const startLat = Math.floor(minLat / gridSize) * gridSize;
-            const endLng = Math.ceil(maxLng / gridSize) * gridSize;
-            const endLat = Math.ceil(maxLat / gridSize) * gridSize;
-
-            // Collect all potential grid cells with their scores
-            const potentialCells = [];
-            for (let lng = startLng; lng < endLng; lng += gridSize) {
-                for (let lat = startLat; lat < endLat; lat += gridSize) {
-                    // Use seeded random to score this grid cell
-                    const seed = coordToSeed(lat, lng);
-                    const score = seededRandom(seed);
-
-                    // Add small random offset within grid cell (but deterministic based on seed)
-                    const offsetLng = lng + seededRandom(seed + 1) * gridSize;
-                    const offsetLat = lat + seededRandom(seed + 2) * gridSize;
-
-                    const gridKey = `${lng.toFixed(4)},${lat.toFixed(4)}`;
-
-                    potentialCells.push({
-                        gridKey,
-                        lng: offsetLng,
-                        lat: offsetLat,
-                        score
-                    });
-                }
-            }
-
-            // Safety check: If we would have more than 200 trees, disable trees at this zoom level
-            if (potentialCells.length > 200) {
-                console.warn(`Too many potential trees (${potentialCells.length}) at zoom ${currentZoom.toFixed(1)} - disabling trees until zoomed in`);
-                decorativeTreeMarkers.forEach(marker => marker.remove());
-                decorativeTreeMarkers.clear();
-                treesDisabledAtZoom = currentZoom;
-                return;
-            }
-
-            // Sort by score and pick top 12-20 cells (random count based on viewport center)
-            const centerSeed = coordToSeed(
-                (minLat + maxLat) / 2,
-                (minLng + maxLng) / 2
+            // Create deterministic seed based on GPS location (rounded to avoid jitter)
+            const locationSeed = coordToSeed(
+                Math.round(centerLat * 1000) / 1000,
+                Math.round(centerLng * 1000) / 1000
             );
-            let targetCount = 12 + Math.floor(seededRandom(centerSeed + 999) * 9); // 12-20
 
-            // Cap at 200 trees maximum
-            targetCount = Math.min(targetCount, 200);
+            // Generate 30 tree positions
+            const treePositions = [];
+            for (let i = 0; i < TREE_COUNT; i++) {
+                // Use seeded random for deterministic placement
+                const seed = locationSeed + i;
 
-            potentialCells.sort((a, b) => b.score - a.score);
-            const selectedCells = potentialCells.slice(0, targetCount);
+                // Random angle (0-360 degrees)
+                const angle = seededRandom(seed) * 2 * Math.PI;
 
-            // Track which grid cells should have trees
-            const activeGridKeys = new Set();
+                // Random distance (0 to RADIUS_DEGREES)
+                // Use square root for uniform distribution in a circle
+                const distance = Math.sqrt(seededRandom(seed + 100)) * RADIUS_DEGREES;
 
-            // Place trees in selected cells
-            for (const cell of selectedCells) {
-                activeGridKeys.add(cell.gridKey);
+                // Calculate position
+                let treeLng = centerLng + distance * Math.cos(angle);
+                let treeLat = centerLat + distance * Math.sin(angle);
 
-                // Check if tree already exists at this grid cell
-                if (!decorativeTreeMarkers.has(cell.gridKey)) {
+                // Check if tree is outside the radius and clamp to edge if needed
+                const actualDistance = Math.sqrt(
+                    Math.pow(treeLng - centerLng, 2) + Math.pow(treeLat - centerLat, 2)
+                );
+
+                if (actualDistance > RADIUS_DEGREES) {
+                    // Clamp to edge of circle
+                    const angleToTree = Math.atan2(treeLat - centerLat, treeLng - centerLng);
+                    treeLng = centerLng + RADIUS_DEGREES * Math.cos(angleToTree);
+                    treeLat = centerLat + RADIUS_DEGREES * Math.sin(angleToTree);
+                }
+
+                const treeKey = `tree_${i}`;
+
+                treePositions.push({
+                    key: treeKey,
+                    lng: treeLng,
+                    lat: treeLat
+                });
+            }
+
+            // Track which trees should exist
+            const activeTreeKeys = new Set();
+
+            // Place trees
+            for (const tree of treePositions) {
+                activeTreeKeys.add(tree.key);
+
+                // Check if tree already exists
+                if (!decorativeTreeMarkers.has(tree.key)) {
                     // Validate location before placing
-                    if (isValidTreeLocation(cell.lng, cell.lat)) {
-                        const marker = createTreeMarker(cell.lng, cell.lat, treeEmoji);
-                        decorativeTreeMarkers.set(cell.gridKey, marker);
+                    if (isValidTreeLocation(tree.lng, tree.lat)) {
+                        const marker = createTreeMarker(tree.lng, tree.lat, treeEmoji);
+                        decorativeTreeMarkers.set(tree.key, marker);
                     }
                 }
             }
 
-            // Remove trees that are now outside the buffered viewport
+            // Remove trees that should no longer exist
             const treesToRemove = [];
-            decorativeTreeMarkers.forEach((marker, gridKey) => {
-                if (!activeGridKeys.has(gridKey)) {
+            decorativeTreeMarkers.forEach((marker, treeKey) => {
+                if (!activeTreeKeys.has(treeKey)) {
                     marker.remove();
-                    treesToRemove.push(gridKey);
+                    treesToRemove.push(treeKey);
                 }
             });
             treesToRemove.forEach(key => decorativeTreeMarkers.delete(key));
 
-            console.log(`Trees on map: ${decorativeTreeMarkers.size} (${treeEmoji}) - target: ${targetCount}`);
+            console.log(`Trees on map: ${decorativeTreeMarkers.size} (${treeEmoji}) around GPS location`);
         }
 
         // Initialize or clear all trees (called on theme change)
@@ -3522,9 +3510,9 @@
             // Clear all existing trees
             decorativeTreeMarkers.forEach(marker => marker.remove());
             decorativeTreeMarkers.clear();
-            treesDisabledAtZoom = null; // Reset disabled state on theme change
+            lastTreeUpdateLocation = null; // Reset location tracker
 
-            // Load trees for current viewport
+            // Load trees for current GPS location
             updateDecorativeTrees(themeName);
         }
 

@@ -3028,11 +3028,10 @@
         function isRadarVisible() {
             if (!map || !map.getLayer('radar-layer')) return false;
 
-            const zoom = map.getZoom();
             const opacity = map.getPaintProperty('radar-layer', 'raster-opacity');
 
-            // Radar is visible if layer exists, zoom <= 8, and opacity > 0
-            return zoom <= 8 && opacity > 0;
+            // Radar is visible if layer exists and opacity > 0
+            return opacity > 0;
         }
 
         // Periodically check for rain animation

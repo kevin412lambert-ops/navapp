@@ -1997,6 +1997,11 @@
                 });
                 this.renderer.autoClear = false;
 
+                // Set renderer size to match canvas
+                const canvas = map.getCanvas();
+                this.renderer.setSize(canvas.width, canvas.height, false);
+                console.log('Renderer size set to:', canvas.width, 'x', canvas.height);
+
                 // Add lighting for model visibility
                 const ambientLight = new window.THREE.AmbientLight(0xffffff, 0.6);
                 this.scene.add(ambientLight);
@@ -2094,8 +2099,30 @@
                 }
 
                 // Render Three.js scene
+                const canvas = this.map.getCanvas();
+                const gl = this.renderer.getContext();
+
+                // Set viewport to match canvas
+                gl.viewport(0, 0, canvas.width, canvas.height);
+
+                // Disable depth test to ensure our objects render on top
+                gl.disable(gl.DEPTH_TEST);
+
+                // Reset renderer state
                 this.renderer.state.reset();
+
+                // Clear flag - don't clear, just render on top
+                const oldAutoClear = this.renderer.autoClear;
+                this.renderer.autoClear = false;
+
+                console.log('Rendering scene with', this.scene.children.length, 'children');
                 this.renderer.render(this.scene, this.camera);
+
+                this.renderer.autoClear = oldAutoClear;
+
+                // Re-enable depth test
+                gl.enable(gl.DEPTH_TEST);
+
                 this.map.triggerRepaint();
             },
 

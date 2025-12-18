@@ -2123,7 +2123,7 @@
             }
         }
 
-        // Create mesh from geometry
+        // Create mesh from geometry (position will be set later with proper scale)
         function createMeshFromGeometry(geometry) {
             // Compute normals for proper lighting
             geometry.computeVertexNormals();
@@ -2138,13 +2138,13 @@
             // Create mesh
             const mesh = new window.THREE.Mesh(geometry, material);
 
-            // Scale to appropriate size
+            // Don't scale yet - we'll scale when positioning based on Mercator units
+            // Just normalize to a base size
             const box = new window.THREE.Box3().setFromObject(mesh);
             const size = box.getSize(new window.THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
-            const targetSize = 15; // meters
-            const scale = targetSize / maxDim;
-            mesh.scale.set(scale, scale, scale);
+            const normalizeScale = 1.0 / maxDim; // Normalize to 1 unit
+            mesh.scale.set(normalizeScale, normalizeScale, normalizeScale);
 
             // Set initial orientation (may need adjustment after testing)
             mesh.rotation.x = -Math.PI / 2; // Lay flat if standing vertical
@@ -2155,10 +2155,15 @@
         // Convert lng/lat to Three.js scene coordinates
         function lngLatToModelSpace(lng, lat) {
             const mc = maplibregl.MercatorCoordinate.fromLngLat([lng, lat], 0);
+
+            // Get the scale factor to convert meters to Mercator units at this latitude
+            const metersToMercator = mc.meterInMercatorCoordinateUnits();
+
             return {
                 x: mc.x,
                 y: mc.y,
-                z: 0
+                z: 0,
+                metersToMercator: metersToMercator
             };
         }
 
@@ -2171,6 +2176,13 @@
 
             const pos = lngLatToModelSpace(lng, lat);
             console.log('update3DModelPosition:', lng, lat, '->', pos);
+            console.log('Meters to Mercator scale:', pos.metersToMercator);
+
+            // Apply proper scale: 15 meters in Mercator coordinate units
+            const targetSizeMeters = 15;
+            const mercatorScale = targetSizeMeters * pos.metersToMercator;
+            activeModel.scale.setScalar(mercatorScale);
+            console.log('Model scaled to:', mercatorScale);
 
             // Set target for smooth animation
             targetModelPosition = pos;

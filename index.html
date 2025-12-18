@@ -297,6 +297,95 @@
             }
         }
 
+        /* Compass Styles */
+        .compass-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .compass-circle {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #3a3a3a, #2a2a2a);
+            border: 3px solid #f97316;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .compass-arrow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            transform-origin: 50% 50%;
+            transition: transform 0.3s ease;
+        }
+
+        .compass-arrow::before {
+            content: '';
+            position: absolute;
+            top: -30px;
+            left: -4px;
+            width: 0;
+            height: 0;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 30px solid #ef4444;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+        }
+
+        .compass-arrow::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -3px;
+            width: 0;
+            height: 0;
+            border-left: 3px solid transparent;
+            border-right: 3px solid transparent;
+            border-top: 20px solid #666;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+        }
+
+        .compass-cardinal {
+            position: absolute;
+            font-size: 11px;
+            font-weight: bold;
+            color: #f97316;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .compass-cardinal.n {
+            top: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .compass-cardinal.e {
+            top: 50%;
+            right: 6px;
+            transform: translateY(-50%);
+        }
+
+        .compass-cardinal.s {
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .compass-cardinal.w {
+            top: 50%;
+            left: 6px;
+            transform: translateY(-50%);
+        }
+
         /* Search Box */
         .search-box {
             position: absolute;
@@ -535,11 +624,28 @@
                     <span id="accuracy-inline" style="font-size: 12px; opacity: 0.8;">--</span>
                 </div>
 
-                <!-- Current Road/Highway -->
-                <div class="telemetry-card full-width" style="margin-bottom: 12px;">
-                    <div class="telemetry-label">Current Road</div>
-                    <div class="telemetry-value" style="font-size: 20px;" id="road-name">Detecting...</div>
-                    <div class="telemetry-secondary" id="road-type">--</div>
+                <!-- Current Road and Compass Row -->
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 12px;">
+                    <!-- Current Road/Highway -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-label">Current Road</div>
+                        <div class="telemetry-value" style="font-size: 20px;" id="road-name">Detecting...</div>
+                        <div class="telemetry-secondary" id="road-type">--</div>
+                    </div>
+
+                    <!-- Compass -->
+                    <div class="telemetry-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px;">
+                        <div class="telemetry-label" style="margin-bottom: 8px;">Compass</div>
+                        <div class="compass-container">
+                            <div class="compass-circle" id="compass-circle">
+                                <div class="compass-arrow" id="compass-arrow"></div>
+                                <div class="compass-cardinal n">N</div>
+                                <div class="compass-cardinal e">E</div>
+                                <div class="compass-cardinal s">S</div>
+                                <div class="compass-cardinal w">W</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Speed, Heading, Altitude Row -->
@@ -891,7 +997,7 @@
         let userMarker = null;
         let exitMarkers = [];
         let decorativeTreeMarkers = new Map(); // Store tree markers by grid key for persistence
-        let treesDisabledAtZoom = null; // Track zoom level where trees were disabled due to exceeding 50
+        let treesDisabledAtZoom = null; // Track zoom level where trees were disabled due to exceeding 200
 
         let nearbyOverpasses = []; // Store detected overpasses
         let lastOverpassCheck = null; // Last GPS position where we checked
@@ -901,6 +1007,7 @@
         let perspectiveMode = false; // Current view mode (false = 2D, true = 3D)
         let autoRotationEnabled = false; // Auto-rotation when driving
         let lastBearing = null; // Last heading to prevent unnecessary updates
+        let perspectiveDisabledByZoom = false; // Track if perspective was auto-disabled due to zoom level
 
         let currentLocation = null;
         let previousLocation = null;
@@ -1244,10 +1351,19 @@
             // Update button appearance
             updatePerspectiveButton();
 
-            // Apply perspective mode if it was enabled
+            // Apply perspective mode if it was enabled and zoom level allows it
             if (perspectiveMode) {
-                map.setPitch(45);
-                console.log('Restored 3D perspective mode from localStorage');
+                const currentZoom = map.getZoom();
+                if (currentZoom >= 16) {
+                    map.setPitch(45);
+                    console.log('Restored 3D perspective mode from localStorage');
+                } else {
+                    // Zoom too low - disable perspective but remember user preference
+                    perspectiveMode = false;
+                    perspectiveDisabledByZoom = true;
+                    updatePerspectiveButton();
+                    console.log('Perspective mode saved in localStorage, but zoom < 16 - will re-enable when zoomed in');
+                }
             }
 
             // Toggle button click handler
@@ -1366,6 +1482,25 @@
                 const valueDisplay = document.getElementById('map-zoom-value');
                 if (slider) slider.value = zoom;
                 if (valueDisplay) valueDisplay.textContent = zoom;
+
+                // Check if we need to disable/enable perspective mode based on zoom
+                const currentZoom = map.getZoom();
+
+                if (currentZoom < 16) {
+                    // Zoomed out too far - disable perspective if it's on
+                    if (perspectiveMode && !perspectiveDisabledByZoom) {
+                        perspectiveDisabledByZoom = true;
+                        console.log('Auto-disabling 3D perspective due to zoom level < 16');
+                        disablePerspectiveMode();
+                    }
+                } else {
+                    // Zoomed in enough - re-enable perspective if it was auto-disabled
+                    if (perspectiveDisabledByZoom) {
+                        perspectiveDisabledByZoom = false;
+                        console.log('Re-enabling 3D perspective at zoom level >= 16');
+                        enablePerspectiveMode();
+                    }
+                }
             });
 
             // Update trees when map moves (add/remove trees as viewport changes)
@@ -2829,6 +2964,9 @@
 
         // Toggle between 2D and 3D modes
         function togglePerspectiveMode() {
+            // Clear auto-disable flag when user manually toggles
+            perspectiveDisabledByZoom = false;
+
             if (perspectiveMode) {
                 disablePerspectiveMode();
             } else {
@@ -3001,7 +3139,7 @@
             // Get current zoom level
             const currentZoom = map.getZoom();
 
-            // Check if trees were disabled due to exceeding 50
+            // Check if trees were disabled due to exceeding 200
             if (treesDisabledAtZoom !== null) {
                 // Trees are disabled - check if we've zoomed in enough to re-enable
                 if (currentZoom >= treesDisabledAtZoom + 2) {
@@ -3063,8 +3201,8 @@
                 }
             }
 
-            // Safety check: If we would have more than 50 trees, disable trees at this zoom level
-            if (potentialCells.length > 50) {
+            // Safety check: If we would have more than 200 trees, disable trees at this zoom level
+            if (potentialCells.length > 200) {
                 console.warn(`Too many potential trees (${potentialCells.length}) at zoom ${currentZoom.toFixed(1)} - disabling trees until zoomed in`);
                 decorativeTreeMarkers.forEach(marker => marker.remove());
                 decorativeTreeMarkers.clear();
@@ -3079,8 +3217,8 @@
             );
             let targetCount = 12 + Math.floor(seededRandom(centerSeed + 999) * 9); // 12-20
 
-            // Cap at 50 trees maximum
-            targetCount = Math.min(targetCount, 50);
+            // Cap at 200 trees maximum
+            targetCount = Math.min(targetCount, 200);
 
             potentialCells.sort((a, b) => b.score - a.score);
             const selectedCells = potentialCells.slice(0, targetCount);
@@ -3222,6 +3360,10 @@
                 const arrowElement = document.getElementById('heading-arrow');
                 arrowElement.style.transform = `rotate(${heading}deg)`;
                 arrowElement.style.opacity = '1';
+
+                // Update compass
+                const compassArrow = document.getElementById('compass-arrow');
+                compassArrow.style.transform = `rotate(${heading}deg)`;
             } else {
                 document.getElementById('heading').textContent = '--';
                 document.getElementById('direction').textContent = 'Stationary';
@@ -3229,6 +3371,10 @@
                 // Dim arrow when stationary
                 const arrowElement = document.getElementById('heading-arrow');
                 arrowElement.style.opacity = '0.3';
+
+                // Reset compass to north when stationary
+                const compassArrow = document.getElementById('compass-arrow');
+                compassArrow.style.transform = 'rotate(0deg)';
             }
 
             // Accuracy (convert meters to feet) - inline in header

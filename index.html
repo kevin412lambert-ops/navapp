@@ -1035,10 +1035,6 @@
         let lastOverpassCheck = null; // Last GPS position where we checked
         let activeOverpassAlert = null; // Currently displayed alert
 
-        // Rain Animation State
-        let rainAnimationActive = false; // Whether rain animation is currently running
-        let hasRainInArea = false; // Whether radar shows rain in current area
-
         // 3D Perspective View State
         let perspectiveMode = false; // Current view mode (false = 2D, true = 3D)
         let autoRotationEnabled = false; // Auto-rotation when driving
@@ -1669,9 +1665,6 @@
 
                 // Update house numbers if needed (debounced)
                 updateHouseNumbersIfNeeded();
-
-                // Check for rain in new viewport
-                checkForRain();
             });
         }
 
@@ -2860,13 +2853,13 @@
                     map.removeSource('radar');
                 }
 
-                // Add radar source
+                // Add radar source (with CORS support)
                 map.addSource('radar', {
                     type: 'raster',
                     tiles: [tileUrl],
                     tileSize: 256,
                     minzoom: 0,
-                    maxzoom: 19  // Allow radar at all zoom levels
+                    maxzoom: 8  // RainViewer provides tiles up to zoom 8
                 });
 
                 // Get current opacity from slider
@@ -2888,9 +2881,6 @@
                 }, firstSymbolLayer ? firstSymbolLayer.id : undefined);
 
                 console.log('Radar overlay loaded successfully');
-
-                // Check for rain in current area
-                checkForRain();
             } catch (error) {
                 console.error('Error loading radar:', error);
             }
@@ -2902,114 +2892,6 @@
                 console.log('Refreshing radar data...');
                 loadRadar();
             }, 120000); // 2 minutes
-        }
-
-        // Check if there's rain in the current viewport
-        async function checkForRain() {
-            if (!map || !map.getLayer('radar-layer')) return;
-
-            // Query rendered features from radar layer
-            const features = map.queryRenderedFeatures({ layers: ['radar-layer'] });
-
-            // If radar layer has pixels rendered, there's likely rain
-            const hasRain = features && features.length > 0;
-
-            if (hasRain && !rainAnimationActive) {
-                startRainAnimation();
-            } else if (!hasRain && rainAnimationActive) {
-                stopRainAnimation();
-            }
-        }
-
-        // Start rain droplet animation
-        function startRainAnimation() {
-            rainAnimationActive = true;
-            const rainContainer = document.getElementById('rain-container');
-            if (!rainContainer) {
-                // Create rain container
-                const container = document.createElement('div');
-                container.id = 'rain-container';
-                container.style.cssText = `
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    pointer-events: none;
-                    z-index: 999;
-                    overflow: hidden;
-                `;
-                document.body.appendChild(container);
-            }
-
-            // Create rain droplets
-            createRainDroplets();
-            console.log('Rain animation started');
-        }
-
-        // Stop rain droplet animation
-        function stopRainAnimation() {
-            rainAnimationActive = false;
-            const rainContainer = document.getElementById('rain-container');
-            if (rainContainer) {
-                rainContainer.innerHTML = '';
-            }
-            console.log('Rain animation stopped');
-        }
-
-        // Create rain droplets
-        function createRainDroplets() {
-            const rainContainer = document.getElementById('rain-container');
-            if (!rainContainer || !rainAnimationActive) return;
-
-            // Create 50 rain droplets
-            const dropletCount = 50;
-
-            for (let i = 0; i < dropletCount; i++) {
-                const droplet = document.createElement('div');
-                droplet.className = 'rain-droplet';
-
-                // Random horizontal position
-                const left = Math.random() * 100;
-
-                // Random animation delay for staggered effect
-                const delay = Math.random() * 2;
-
-                // Random duration between 0.5s and 1s
-                const duration = 0.5 + Math.random() * 0.5;
-
-                droplet.style.cssText = `
-                    position: absolute;
-                    left: ${left}%;
-                    top: -20px;
-                    width: 2px;
-                    height: 20px;
-                    background: linear-gradient(to bottom, rgba(174, 194, 224, 0), rgba(174, 194, 224, 0.8));
-                    animation: rain-fall ${duration}s linear ${delay}s infinite;
-                    pointer-events: none;
-                `;
-
-                rainContainer.appendChild(droplet);
-            }
-
-            // Add CSS animation if not already present
-            if (!document.getElementById('rain-animation-style')) {
-                const style = document.createElement('style');
-                style.id = 'rain-animation-style';
-                style.textContent = `
-                    @keyframes rain-fall {
-                        0% {
-                            top: -20px;
-                            opacity: 1;
-                        }
-                        100% {
-                            top: 100%;
-                            opacity: 0.3;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
         }
 
         // ==================== OVERPASS HEIGHT DETECTION ====================

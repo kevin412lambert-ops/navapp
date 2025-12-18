@@ -2057,20 +2057,19 @@
                 this.camera.matrixWorldInverse = new window.THREE.Matrix4();
                 this.camera.projectionMatrixInverse = new window.THREE.Matrix4().copy(this.camera.projectionMatrix).invert();
 
-                // TEST: Position the test cube using model matrix
+                // TEST: Position the test cube using simple coordinates
                 if (window.testCube && currentLocation) {
                     const mc = maplibregl.MercatorCoordinate.fromLngLat(
                         [currentLocation.lng, currentLocation.lat],
                         0
                     );
-                    const modelMatrix = mc.toMat4();
                     const scale = mc.meterInMercatorCoordinateUnits() * 50; // 50 meters
 
-                    const m = new window.THREE.Matrix4().fromArray(modelMatrix);
-                    m.scale(new window.THREE.Vector3(scale, scale, scale));
+                    // Simple position-based approach
+                    window.testCube.position.set(mc.x, mc.y, 0.001);
+                    window.testCube.scale.set(scale, scale, scale);
 
-                    window.testCube.matrix = m;
-                    window.testCube.matrixAutoUpdate = false;
+                    console.log('Test cube positioned at:', mc.x, mc.y, 'scale:', scale);
                 }
 
                 // Handle smooth position animation

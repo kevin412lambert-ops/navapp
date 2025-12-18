@@ -2065,13 +2065,14 @@
                         [currentLocation.lng, currentLocation.lat],
                         0
                     );
-                    const scale = mc.meterInMercatorCoordinateUnits() * 50; // 50 meters
+                    // Make it LARGE - 1% of screen (0.01 in Mercator space which is 0-1)
+                    const scale = 0.01;
 
                     // Simple position-based approach
                     window.testCube.position.set(mc.x, mc.y, 0.001);
                     window.testCube.scale.set(scale, scale, scale);
 
-                    console.log('Test cube positioned at:', mc.x, mc.y, 'scale:', scale);
+                    console.log('Test cube positioned at:', mc.x, mc.y, 'scale:', scale, 'SHOULD BE VISIBLE');
                 }
 
                 // Handle smooth position animation

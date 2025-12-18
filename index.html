@@ -992,10 +992,13 @@
     <!-- Three.js Core Library -->
     <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
-    <!-- STL Loader (ES6 Module) -->
+    <!-- STL Loader (ES6 Module) - Load with Promise -->
     <script type="module">
         import { STLLoader } from 'https://unpkg.com/three@0.158.0/examples/jsm/loaders/STLLoader.js';
-        window.STLLoader = STLLoader; // Make globally available
+        window.STLLoader = STLLoader;
+        window.STLLoaderReady = true;
+        // Dispatch event when ready
+        window.dispatchEvent(new Event('stlloader-ready'));
     </script>
 
     <script>
@@ -2034,10 +2037,24 @@
             }
         };
 
+        // Wait for STLLoader to be ready
+        function waitForSTLLoader() {
+            return new Promise((resolve) => {
+                if (window.STLLoaderReady && window.STLLoader) {
+                    resolve();
+                } else {
+                    window.addEventListener('stlloader-ready', () => resolve(), { once: true });
+                }
+            });
+        }
+
         // Load STL file
         async function loadSTLModel(modelKey) {
             try {
                 showModelLoadingIndicator(true);
+
+                // Wait for STLLoader to be available
+                await waitForSTLLoader();
 
                 const loader = new window.STLLoader();
                 const geometry = await loader.loadAsync(modelPaths[modelKey]);

@@ -2011,12 +2011,12 @@
                 threeJsRenderer = this.renderer;
 
                 // TEST: Add a bright test cube to verify rendering works
-                const testGeometry = new window.THREE.BoxGeometry(0.001, 0.001, 0.001);
-                const testMaterial = new window.THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: false });
-                const testCube = new window.THREE.Mesh(testGeometry, testMaterial);
-                testCube.position.set(0.23, 0.40, 0.001); // Same area as our GPS position
-                this.scene.add(testCube);
-                console.log('TEST CUBE ADDED at position:', testCube.position);
+                // Use a model matrix approach for proper transformation
+                const testGeometry = new window.THREE.BoxGeometry(1, 1, 1);
+                const testMaterial = new window.THREE.MeshBasicMaterial({ color: 0xff0000 });
+                window.testCube = new window.THREE.Mesh(testGeometry, testMaterial);
+                this.scene.add(window.testCube);
+                console.log('TEST CUBE ADDED');
 
                 console.log('Three.js scene initialized:', this.scene);
                 console.log('Scene children (lights):', this.scene.children.length);
@@ -2051,6 +2051,22 @@
                 this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
                 this.camera.matrixWorldInverse = new window.THREE.Matrix4();
                 this.camera.projectionMatrixInverse = new window.THREE.Matrix4().copy(this.camera.projectionMatrix).invert();
+
+                // TEST: Position the test cube using model matrix
+                if (window.testCube && currentLocation) {
+                    const mc = maplibregl.MercatorCoordinate.fromLngLat(
+                        [currentLocation.lng, currentLocation.lat],
+                        0
+                    );
+                    const modelMatrix = mc.toMat4();
+                    const scale = mc.meterInMercatorCoordinateUnits() * 50; // 50 meters
+
+                    const m = new window.THREE.Matrix4().fromArray(modelMatrix);
+                    m.scale(new window.THREE.Vector3(scale, scale, scale));
+
+                    window.testCube.matrix = m;
+                    window.testCube.matrixAutoUpdate = false;
+                }
 
                 // Handle smooth position animation
                 if (targetModelPosition && currentModelPosition && activeModel) {

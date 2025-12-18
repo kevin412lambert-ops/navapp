@@ -790,7 +790,7 @@
         let map = null;
         let userMarker = null;
         let exitMarkers = [];
-        let decorativeTreeMarkers = []; // Store tree markers for cleanup
+        let decorativeTreeMarkers = new Map(); // Store tree markers by grid key for persistence
 
         let currentLocation = null;
         let previousLocation = null;
@@ -1143,25 +1143,10 @@
                 if (valueDisplay) valueDisplay.textContent = zoom;
             });
 
-            // Regenerate trees when user pans/zooms significantly (optional enhancement)
-            let lastTreeBounds = null;
-
+            // Update trees when map moves (add/remove trees as viewport changes)
             map.on('moveend', () => {
                 const savedStyle = localStorage.getItem('map_style') || 'voyager';
-                const shouldShowTrees = savedStyle.includes('cartoon') || savedStyle.includes('holiday');
-
-                if (!shouldShowTrees) return;
-
-                const currentBounds = map.getBounds();
-
-                // Only regenerate if moved significantly (optional optimization)
-                if (!lastTreeBounds ||
-                    Math.abs(currentBounds.getCenter().lng - lastTreeBounds.getCenter().lng) > 0.01 ||
-                    Math.abs(currentBounds.getCenter().lat - lastTreeBounds.getCenter().lat) > 0.01) {
-
-                    addDecorativeTrees(savedStyle);
-                    lastTreeBounds = currentBounds;
-                }
+                updateDecorativeTrees(savedStyle);
             });
         }
 
@@ -2329,6 +2314,17 @@
         }
 
         // ==================== DECORATIVE TREES ====================
+        // Seeded random number generator for deterministic tree placement
+        function seededRandom(seed) {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Generate a seed from lat/lng coordinates
+        function coordToSeed(lat, lng) {
+            return lat * 1000000 + lng * 1000000;
+        }
+
         // Helper: Check if location is suitable for a tree (park, green space, not road/building/water)
         function isValidTreeLocation(lng, lat) {
             // Convert lat/lng to screen coordinates
@@ -2345,7 +2341,6 @@
             let hasRoad = false;
             let hasBuilding = false;
             let hasWater = false;
-            let hasPark = false;
 
             for (const feature of features) {
                 const layer = feature.layer;
@@ -2370,18 +2365,8 @@
                     props.water || props.waterway) {
                     hasWater = true;
                 }
-
-                // Check for parks/green spaces (these are GOOD for trees)
-                if (layer.id.includes('park') || layer.id.includes('landuse') ||
-                    layer.id.includes('wood') || layer.id.includes('forest') ||
-                    sourceLayer.includes('park') || sourceLayer.includes('landuse') ||
-                    props.leisure === 'park' || props.landuse === 'forest' ||
-                    props.natural === 'wood') {
-                    hasPark = true;
-                }
             }
 
-            // Only place trees in parks/green spaces OR empty areas
             // Never place on roads, buildings, or water
             if (hasRoad || hasBuilding || hasWater) {
                 return false;
@@ -2390,69 +2375,120 @@
             return true; // Valid location
         }
 
-        function addDecorativeTrees(themeName) {
-            // Remove existing trees first
-            decorativeTreeMarkers.forEach(marker => marker.remove());
-            decorativeTreeMarkers = [];
+        // Create a tree marker at specific coordinates
+        function createTreeMarker(lng, lat, treeEmoji) {
+            const treeEl = document.createElement('div');
+            treeEl.className = 'decorative-tree';
+            treeEl.style.fontSize = '50px'; // Fixed pixel size - won't change with zoom
+            treeEl.style.cursor = 'default';
+            treeEl.style.userSelect = 'none';
+            treeEl.style.pointerEvents = 'none';
+            treeEl.textContent = treeEmoji;
 
-            // Only add trees for cartoon and holiday themes
+            const treeMarker = new maplibregl.Marker({
+                element: treeEl,
+                anchor: 'bottom'
+            })
+            .setLngLat([lng, lat])
+            .addTo(map);
+
+            return treeMarker;
+        }
+
+        // Update trees based on current viewport
+        function updateDecorativeTrees(themeName) {
+            // Only show trees for cartoon and holiday themes
             const shouldShowTrees = themeName && (
                 themeName.includes('cartoon') ||
                 themeName.includes('holiday')
             );
 
             if (!shouldShowTrees || !map) {
-                return; // Exit if wrong theme or map not ready
+                // Clear all trees if wrong theme
+                decorativeTreeMarkers.forEach(marker => marker.remove());
+                decorativeTreeMarkers.clear();
+                return;
             }
 
             // Determine which emoji to use
             const treeEmoji = themeName.includes('holiday') ? '🎄' : '🌲';
 
-            // Get current map bounds
+            // Get current map bounds with buffer for smoother loading
             const bounds = map.getBounds();
-            const sw = bounds.getSouthWest(); // Southwest corner
-            const ne = bounds.getNorthEast(); // Northeast corner
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
 
-            // Target 5-10 trees, try up to 100 random positions to find valid spots
-            const targetTreeCount = Math.floor(Math.random() * 6) + 5;
-            const maxAttempts = 100;
-            let attempts = 0;
-            let treesPlaced = 0;
+            // Add 20% buffer around viewport
+            const lngBuffer = (ne.lng - sw.lng) * 0.2;
+            const latBuffer = (ne.lat - sw.lat) * 0.2;
 
-            while (treesPlaced < targetTreeCount && attempts < maxAttempts) {
-                attempts++;
+            const minLng = sw.lng - lngBuffer;
+            const maxLng = ne.lng + lngBuffer;
+            const minLat = sw.lat - latBuffer;
+            const maxLat = ne.lat + latBuffer;
 
-                // Random position within bounds
-                const randomLng = sw.lng + Math.random() * (ne.lng - sw.lng);
-                const randomLat = sw.lat + Math.random() * (ne.lat - sw.lat);
+            // Grid spacing (approximately 200-300 meters between potential tree positions)
+            const gridSize = 0.002; // degrees (roughly 200m at mid-latitudes)
 
-                // Check if this is a valid location for a tree
-                if (!isValidTreeLocation(randomLng, randomLat)) {
-                    continue; // Skip this location, try another
+            // Round to grid cells
+            const startLng = Math.floor(minLng / gridSize) * gridSize;
+            const startLat = Math.floor(minLat / gridSize) * gridSize;
+            const endLng = Math.ceil(maxLng / gridSize) * gridSize;
+            const endLat = Math.ceil(maxLat / gridSize) * gridSize;
+
+            // Track which grid cells should have trees
+            const activeGridKeys = new Set();
+
+            // Scan grid cells in viewport
+            for (let lng = startLng; lng < endLng; lng += gridSize) {
+                for (let lat = startLat; lat < endLat; lat += gridSize) {
+                    // Use seeded random to determine if this grid cell should have a tree
+                    const seed = coordToSeed(lat, lng);
+                    const random = seededRandom(seed);
+
+                    // Adjust this threshold to control tree density (0.15 = ~15% of grid cells have trees)
+                    if (random > 0.85) {
+                        // This grid cell should have a tree
+                        const gridKey = `${lng.toFixed(4)},${lat.toFixed(4)}`;
+                        activeGridKeys.add(gridKey);
+
+                        // Add small random offset within grid cell (but deterministic based on seed)
+                        const offsetLng = lng + seededRandom(seed + 1) * gridSize;
+                        const offsetLat = lat + seededRandom(seed + 2) * gridSize;
+
+                        // Check if tree already exists at this grid cell
+                        if (!decorativeTreeMarkers.has(gridKey)) {
+                            // Validate location before placing
+                            if (isValidTreeLocation(offsetLng, offsetLat)) {
+                                const marker = createTreeMarker(offsetLng, offsetLat, treeEmoji);
+                                decorativeTreeMarkers.set(gridKey, marker);
+                            }
+                        }
+                    }
                 }
-
-                // Valid location! Place a tree here
-                const treeEl = document.createElement('div');
-                treeEl.className = 'decorative-tree';
-                treeEl.style.fontSize = '50px'; // Medium size (40-60px range)
-                treeEl.style.cursor = 'default';
-                treeEl.style.userSelect = 'none';
-                treeEl.style.pointerEvents = 'none'; // Don't block map interactions
-                treeEl.textContent = treeEmoji;
-
-                // Create marker
-                const treeMarker = new maplibregl.Marker({
-                    element: treeEl,
-                    anchor: 'bottom' // Anchor at bottom so tree "stands" on ground
-                })
-                .setLngLat([randomLng, randomLat])
-                .addTo(map);
-
-                decorativeTreeMarkers.push(treeMarker);
-                treesPlaced++;
             }
 
-            console.log(`Added ${treesPlaced} decorative trees (${treeEmoji}) for theme: ${themeName} (${attempts} attempts)`);
+            // Remove trees that are now outside the buffered viewport
+            const treesToRemove = [];
+            decorativeTreeMarkers.forEach((marker, gridKey) => {
+                if (!activeGridKeys.has(gridKey)) {
+                    marker.remove();
+                    treesToRemove.push(gridKey);
+                }
+            });
+            treesToRemove.forEach(key => decorativeTreeMarkers.delete(key));
+
+            console.log(`Trees on map: ${decorativeTreeMarkers.size} (${treeEmoji})`);
+        }
+
+        // Initialize or clear all trees (called on theme change)
+        function addDecorativeTrees(themeName) {
+            // Clear all existing trees
+            decorativeTreeMarkers.forEach(marker => marker.remove());
+            decorativeTreeMarkers.clear();
+
+            // Load trees for current viewport
+            updateDecorativeTrees(themeName);
         }
 
         // ==================== DISPLAY UPDATES ====================

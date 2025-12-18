@@ -790,6 +790,7 @@
         let map = null;
         let userMarker = null;
         let exitMarkers = [];
+        let decorativeTreeMarkers = []; // Store tree markers for cleanup
 
         let currentLocation = null;
         let previousLocation = null;
@@ -1055,9 +1056,10 @@
                     map.setStyle(getVectorStyleURL(newStyle));
                 }
 
-                // Re-add radar after style loads
+                // Re-add radar and trees after style loads
                 map.once('styledata', () => {
                     loadRadar();
+                    addDecorativeTrees(newStyle); // Add trees for cartoon/holiday themes
                 });
 
                 console.log(`Map style changed to: ${newStyle}`);
@@ -1114,6 +1116,7 @@
             map.on('load', () => {
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
+                addDecorativeTrees(savedStyle); // Add trees if cartoon/holiday theme
 
                 // If theme was applied, update color pickers
                 if (themeColors) {
@@ -1138,6 +1141,27 @@
                 const valueDisplay = document.getElementById('map-zoom-value');
                 if (slider) slider.value = zoom;
                 if (valueDisplay) valueDisplay.textContent = zoom;
+            });
+
+            // Regenerate trees when user pans/zooms significantly (optional enhancement)
+            let lastTreeBounds = null;
+
+            map.on('moveend', () => {
+                const savedStyle = localStorage.getItem('map_style') || 'voyager';
+                const shouldShowTrees = savedStyle.includes('cartoon') || savedStyle.includes('holiday');
+
+                if (!shouldShowTrees) return;
+
+                const currentBounds = map.getBounds();
+
+                // Only regenerate if moved significantly (optional optimization)
+                if (!lastTreeBounds ||
+                    Math.abs(currentBounds.getCenter().lng - lastTreeBounds.getCenter().lng) > 0.01 ||
+                    Math.abs(currentBounds.getCenter().lat - lastTreeBounds.getCenter().lat) > 0.01) {
+
+                    addDecorativeTrees(savedStyle);
+                    lastTreeBounds = currentBounds;
+                }
             });
         }
 
@@ -2302,6 +2326,133 @@
             } catch (error) {
                 console.error('Error loading radar:', error);
             }
+        }
+
+        // ==================== DECORATIVE TREES ====================
+        // Helper: Check if location is suitable for a tree (park, green space, not road/building/water)
+        function isValidTreeLocation(lng, lat) {
+            // Convert lat/lng to screen coordinates
+            const point = map.project([lng, lat]);
+
+            // Query features at this point
+            const features = map.queryRenderedFeatures(point);
+
+            if (!features || features.length === 0) {
+                return true; // Empty space is OK for trees
+            }
+
+            // Check what features exist at this location
+            let hasRoad = false;
+            let hasBuilding = false;
+            let hasWater = false;
+            let hasPark = false;
+
+            for (const feature of features) {
+                const layer = feature.layer;
+                const props = feature.properties || {};
+                const sourceLayer = feature.sourceLayer || '';
+
+                // Check for roads/highways
+                if (layer.id.includes('road') || layer.id.includes('highway') ||
+                    layer.id.includes('street') || layer.id.includes('transportation') ||
+                    sourceLayer.includes('road') || sourceLayer.includes('transportation')) {
+                    hasRoad = true;
+                }
+
+                // Check for buildings
+                if (layer.id.includes('building') || sourceLayer.includes('building') ||
+                    props.building) {
+                    hasBuilding = true;
+                }
+
+                // Check for water
+                if (layer.id.includes('water') || sourceLayer.includes('water') ||
+                    props.water || props.waterway) {
+                    hasWater = true;
+                }
+
+                // Check for parks/green spaces (these are GOOD for trees)
+                if (layer.id.includes('park') || layer.id.includes('landuse') ||
+                    layer.id.includes('wood') || layer.id.includes('forest') ||
+                    sourceLayer.includes('park') || sourceLayer.includes('landuse') ||
+                    props.leisure === 'park' || props.landuse === 'forest' ||
+                    props.natural === 'wood') {
+                    hasPark = true;
+                }
+            }
+
+            // Only place trees in parks/green spaces OR empty areas
+            // Never place on roads, buildings, or water
+            if (hasRoad || hasBuilding || hasWater) {
+                return false;
+            }
+
+            return true; // Valid location
+        }
+
+        function addDecorativeTrees(themeName) {
+            // Remove existing trees first
+            decorativeTreeMarkers.forEach(marker => marker.remove());
+            decorativeTreeMarkers = [];
+
+            // Only add trees for cartoon and holiday themes
+            const shouldShowTrees = themeName && (
+                themeName.includes('cartoon') ||
+                themeName.includes('holiday')
+            );
+
+            if (!shouldShowTrees || !map) {
+                return; // Exit if wrong theme or map not ready
+            }
+
+            // Determine which emoji to use
+            const treeEmoji = themeName.includes('holiday') ? '🎄' : '🌲';
+
+            // Get current map bounds
+            const bounds = map.getBounds();
+            const sw = bounds.getSouthWest(); // Southwest corner
+            const ne = bounds.getNorthEast(); // Northeast corner
+
+            // Target 5-10 trees, try up to 100 random positions to find valid spots
+            const targetTreeCount = Math.floor(Math.random() * 6) + 5;
+            const maxAttempts = 100;
+            let attempts = 0;
+            let treesPlaced = 0;
+
+            while (treesPlaced < targetTreeCount && attempts < maxAttempts) {
+                attempts++;
+
+                // Random position within bounds
+                const randomLng = sw.lng + Math.random() * (ne.lng - sw.lng);
+                const randomLat = sw.lat + Math.random() * (ne.lat - sw.lat);
+
+                // Check if this is a valid location for a tree
+                if (!isValidTreeLocation(randomLng, randomLat)) {
+                    continue; // Skip this location, try another
+                }
+
+                // Valid location! Place a tree here
+                const treeEl = document.createElement('div');
+                treeEl.className = 'decorative-tree';
+                treeEl.style.fontSize = '50px'; // Medium size (40-60px range)
+                treeEl.style.cursor = 'default';
+                treeEl.style.userSelect = 'none';
+                treeEl.style.pointerEvents = 'none'; // Don't block map interactions
+                treeEl.textContent = treeEmoji;
+
+                // Create marker
+                const treeMarker = new maplibregl.Marker({
+                    element: treeEl,
+                    anchor: 'bottom' // Anchor at bottom so tree "stands" on ground
+                })
+                .setLngLat([randomLng, randomLat])
+                .addTo(map);
+
+                decorativeTreeMarkers.push(treeMarker);
+                treesPlaced++;
+            }
+
+            console.log(`Added ${treesPlaced} decorative trees (${treeEmoji}) for theme: ${themeName} (${attempts} attempts)`);
         }
 
         // ==================== DISPLAY UPDATES ====================

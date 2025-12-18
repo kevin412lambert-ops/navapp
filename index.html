@@ -2316,6 +2316,11 @@
                 threeJsScene.remove(activeModel);
             }
 
+            // Reset position tracking for new model
+            currentModelPosition = null;
+            targetModelPosition = null;
+            modelPositionAnimationStart = null;
+
             // Load and display new model
             currentModelKey = newModelKey;
             await loadAndDisplayModel(newModelKey, currentLocation.smoothedLng || currentLocation.lng, currentLocation.smoothedLat || currentLocation.lat);

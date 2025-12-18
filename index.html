@@ -230,6 +230,73 @@
             50% { opacity: 0.5; }
         }
 
+        /* Overpass Alert Styles */
+        .overpass-alert {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: slideDown 0.3s ease-out;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .overpass-alert.normal {
+            background: linear-gradient(135deg, #4a90e2, #357abd);
+            color: white;
+            border: 2px solid #2d6ca8;
+        }
+
+        .overpass-alert.warning {
+            background: linear-gradient(135deg, #ff9500, #ff6b00);
+            color: white;
+            border: 2px solid #cc5200;
+        }
+
+        .overpass-alert.danger {
+            background: linear-gradient(135deg, #ff3b30, #cc0000);
+            color: white;
+            border: 2px solid #990000;
+            animation: pulseAlert 1s ease-in-out infinite;
+        }
+
+        .overpass-alert-title {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+
+        .overpass-alert-details {
+            font-size: 14px;
+            font-weight: normal;
+            opacity: 0.9;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateX(-50%) translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes pulseAlert {
+            0%, 100% {
+                transform: translateX(-50%) scale(1);
+            }
+            50% {
+                transform: translateX(-50%) scale(1.02);
+            }
+        }
+
         /* Search Box */
         .search-box {
             position: absolute;
@@ -623,9 +690,7 @@
                     <div class="exits-header">Map Style</div>
                     <div style="padding: 12px;">
                         <select id="map-style-selector" style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                            <option value="voyager">CARTO Voyager (Default)</option>
-                            <option value="dark">CARTO Dark Matter</option>
-                            <option value="satellite">Esri Satellite</option>
+                            <option value="satellite">Satellite</option>
                             <option value="executive-light">Executive Lightmode</option>
                             <option value="executive-dark">Executive Darkmode</option>
                             <option value="cartoon-light">Cartoon Lightmode</option>
@@ -636,8 +701,21 @@
                     </div>
                 </div>
 
-                <!-- Style Customization Editor -->
+                <!-- Vehicle Type Selector -->
                 <div class="exits-section" style="margin-top: 15px;">
+                    <div class="exits-header">Vehicle Type</div>
+                    <div style="padding: 12px;">
+                        <select id="vehicle-type-selector" style="width: 100%; padding: 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                            <option value="car">🚗 Car (No height restrictions)</option>
+                            <option value="suv">🚙 SUV/Van (No restrictions)</option>
+                            <option value="rv">🚐 RV/Camper (11' / 3.35m clearance)</option>
+                            <option value="truck">🚚 Truck/Box Truck (13'6" / 4.11m clearance)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Style Customization Editor -->
+                <div id="style-customization-section" class="exits-section" style="margin-top: 15px;">
                     <div class="exits-header" style="cursor: pointer; user-select: none;" onclick="toggleStyleEditor()">
                         🎨 Customize Colors
                         <span id="style-editor-toggle" style="float: right;">▲</span>
@@ -700,8 +778,8 @@
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <label style="font-size: 11px; color: #ccc;">Text Size:</label>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="range" id="text-size-slider" min="8" max="26" value="12" style="width: 80px;">
-                                    <span id="text-size-value" style="font-size: 11px; color: #f97316; min-width: 30px;">12px</span>
+                                    <input type="range" id="text-size-slider" min="8" max="26" value="18" style="width: 80px;">
+                                    <span id="text-size-value" style="font-size: 11px; color: #f97316; min-width: 30px;">18px</span>
                                 </div>
                             </div>
                         </div>
@@ -793,6 +871,10 @@
         let decorativeTreeMarkers = new Map(); // Store tree markers by grid key for persistence
         let treesDisabledAtZoom = null; // Track zoom level where trees were disabled due to exceeding 50
 
+        let nearbyOverpasses = []; // Store detected overpasses
+        let lastOverpassCheck = null; // Last GPS position where we checked
+        let activeOverpassAlert = null; // Currently displayed alert
+
         let currentLocation = null;
         let previousLocation = null;
         let roadInfo = null;
@@ -842,6 +924,7 @@
             initRadarOpacitySlider();
             initMapZoomSlider();
             initMapStyleSelector();
+            initVehicleTypeSelector();
             initTextSizeSlider();
             loadSavedColors();
         }
@@ -951,7 +1034,7 @@
                     park: '#A8C5A0',
                     background: '#F5F5F0',
                     text: '#2C2C2C',
-                    textSize: 12
+                    textSize: 18
                 },
                 'executive-dark': {
                     highway: '#CCCCCC',
@@ -963,7 +1046,7 @@
                     park: '#3D5C3D',
                     background: '#1A1A1A',
                     text: '#E0E0E0',
-                    textSize: 12
+                    textSize: 18
                 },
                 'cartoon-light': {
                     highway: '#FF4444',
@@ -975,7 +1058,7 @@
                     park: '#7FFF00',
                     background: '#FFF8DC',
                     text: '#4A235A',
-                    textSize: 13
+                    textSize: 18
                 },
                 'cartoon-dark': {
                     highway: '#FF69B4',
@@ -987,7 +1070,7 @@
                     park: '#39FF14',
                     background: '#1C1C3C',
                     text: '#FFFFFF',
-                    textSize: 13
+                    textSize: 18
                 },
                 'holiday-light': {
                     highway: '#C41E3A',
@@ -999,7 +1082,7 @@
                     park: '#0F8B3D',
                     background: '#FFFAFA',
                     text: '#1B4D3E',
-                    textSize: 12
+                    textSize: 18
                 },
                 'holiday-dark': {
                     highway: '#FF0000',
@@ -1011,18 +1094,45 @@
                     park: '#2D5016',
                     background: '#0D1B0E',
                     text: '#FFD700',
-                    textSize: 12
+                    textSize: 18
                 }
             };
             return themes[themeName] || null;
         }
 
+        // Toggle customization section visibility based on style
+        function updateCustomizationAvailability(styleName) {
+            const customizationSection = document.getElementById('style-customization-section');
+
+            if (styleName === 'satellite') {
+                // Disable customization for satellite view
+                customizationSection.style.opacity = '0.5';
+                customizationSection.style.pointerEvents = 'none';
+                customizationSection.title = 'Color customization not available for Satellite view';
+            } else {
+                // Enable customization for all other styles
+                customizationSection.style.opacity = '1';
+                customizationSection.style.pointerEvents = 'auto';
+                customizationSection.title = '';
+            }
+        }
+
         function initMapStyleSelector() {
             const selector = document.getElementById('map-style-selector');
 
-            // Load saved style preference
-            const savedStyle = localStorage.getItem('map_style') || 'voyager';
+            // Load saved style preference (default to executive-light if old voyager/dark value)
+            let savedStyle = localStorage.getItem('map_style') || 'executive-light';
+
+            // Migrate old voyager/dark values to executive-light
+            if (savedStyle === 'voyager' || savedStyle === 'dark') {
+                savedStyle = 'executive-light';
+                localStorage.setItem('map_style', savedStyle);
+            }
+
             selector.value = savedStyle;
+
+            // Set initial customization availability
+            updateCustomizationAvailability(savedStyle);
 
             // Handle style change
             selector.addEventListener('change', async (e) => {
@@ -1030,6 +1140,9 @@
 
                 // Save preference
                 localStorage.setItem('map_style', newStyle);
+
+                // Update customization availability
+                updateCustomizationAvailability(newStyle);
 
                 // Check if this is a themed style
                 const themeColors = getThemeColors(newStyle);
@@ -1053,7 +1166,7 @@
                     document.getElementById('text-size-slider').value = themeColors.textSize;
                     document.getElementById('text-size-value').textContent = themeColors.textSize + 'px';
                 } else {
-                    // Standard map style (voyager, dark, satellite)
+                    // Standard map style (satellite)
                     map.setStyle(getVectorStyleURL(newStyle));
                 }
 
@@ -1064,6 +1177,26 @@
                 });
 
                 console.log(`Map style changed to: ${newStyle}`);
+            });
+        }
+
+        function initVehicleTypeSelector() {
+            const selector = document.getElementById('vehicle-type-selector');
+
+            // Load saved preference
+            const savedVehicleType = localStorage.getItem('vehicle_type') || 'car';
+            selector.value = savedVehicleType;
+
+            // Handle change
+            selector.addEventListener('change', (e) => {
+                const vehicleType = e.target.value;
+                localStorage.setItem('vehicle_type', vehicleType);
+                console.log(`Vehicle type changed to: ${vehicleType}`);
+
+                // Re-check nearby overpasses with new vehicle type
+                if (currentLocation) {
+                    checkNearbyOverpasses(currentLocation.lat, currentLocation.lng);
+                }
             });
         }
 
@@ -1094,7 +1227,15 @@
         }
 
         async function initMap() {
-            const savedStyle = localStorage.getItem('map_style') || 'voyager';
+            // Load saved style preference (default to executive-light if old voyager/dark value)
+            let savedStyle = localStorage.getItem('map_style') || 'executive-light';
+
+            // Migrate old voyager/dark values to executive-light
+            if (savedStyle === 'voyager' || savedStyle === 'dark') {
+                savedStyle = 'executive-light';
+                localStorage.setItem('map_style', savedStyle);
+            }
+
             const themeColors = getThemeColors(savedStyle);
 
             let initialStyle;
@@ -1118,6 +1259,9 @@
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
                 addDecorativeTrees(savedStyle); // Add trees if cartoon/holiday theme
+
+                // Set initial customization availability
+                updateCustomizationAvailability(savedStyle);
 
                 // If theme was applied, update color pickers
                 if (themeColors) {
@@ -1218,6 +1362,9 @@
                 altitudeAccuracy: coords.altitudeAccuracy,
                 timestamp: position.timestamp
             };
+
+            // Check for nearby overpasses
+            checkNearbyOverpasses(currentLocation.lat, currentLocation.lng);
 
             // Update map marker
             updateMapMarker();
@@ -2311,6 +2458,238 @@
                 console.log('Radar overlay loaded successfully');
             } catch (error) {
                 console.error('Error loading radar:', error);
+            }
+        }
+
+        // ==================== OVERPASS HEIGHT DETECTION ====================
+
+        // Get vehicle clearance requirement
+        function getVehicleClearance() {
+            const vehicleType = localStorage.getItem('vehicle_type') || 'car';
+            const clearances = {
+                'car': null,        // No restrictions
+                'suv': null,        // No restrictions
+                'rv': 3.35,         // 11 feet in meters
+                'truck': 4.11       // 13'6" in meters
+            };
+            return clearances[vehicleType];
+        }
+
+        // Fetch overpass/bridge data from OpenStreetMap
+        async function fetchNearbyOverpasses(lat, lng, radiusMeters = 2000) {
+            const overpassUrl = 'https://overpass-api.de/api/interpreter';
+
+            // Query for bridges and tunnels with height data
+            // OSM tags: maxheight, maxheight:physical, height
+            const query = `
+            [out:json][timeout:25];
+            (
+              way["bridge"="yes"]["maxheight"](around:${radiusMeters},${lat},${lng});
+              way["bridge"="yes"]["maxheight:physical"](around:${radiusMeters},${lat},${lng});
+              way["tunnel"="yes"]["maxheight"](around:${radiusMeters},${lat},${lng});
+              way["highway"]["maxheight"](around:${radiusMeters},${lat},${lng});
+            );
+            out body;
+            >;
+            out skel qt;
+            `;
+
+            try {
+                const response = await fetch(overpassUrl, {
+                    method: 'POST',
+                    body: query,
+                    headers: { 'Content-Type': 'text/plain' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Overpass API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return parseOverpassData(data, lat, lng);
+            } catch (error) {
+                console.error('Error fetching overpass data:', error);
+                return [];
+            }
+        }
+
+        // Parse Overpass API response
+        function parseOverpassData(data, userLat, userLng) {
+            const overpasses = [];
+            const ways = data.elements.filter(el => el.type === 'way');
+            const nodes = data.elements.filter(el => el.type === 'node');
+
+            for (const way of ways) {
+                // Extract height from tags
+                const maxheight = way.tags?.maxheight || way.tags?.['maxheight:physical'];
+                if (!maxheight) continue;
+
+                // Parse height (can be "4.5", "4.5 m", "14'6\"", etc.)
+                const heightMeters = parseHeight(maxheight);
+                if (!heightMeters) continue;
+
+                // Calculate center point of the way
+                const wayNodes = way.nodes
+                    .map(nodeId => nodes.find(n => n.id === nodeId))
+                    .filter(n => n && n.lat && n.lon);
+
+                if (wayNodes.length === 0) continue;
+
+                const centerLat = wayNodes.reduce((sum, n) => sum + n.lat, 0) / wayNodes.length;
+                const centerLng = wayNodes.reduce((sum, n) => sum + n.lon, 0) / wayNodes.length;
+
+                // Calculate distance from user
+                const distance = calculateDistance(userLat, userLng, centerLat, centerLng);
+
+                overpasses.push({
+                    id: way.id,
+                    name: way.tags?.name || way.tags?.highway || 'Unnamed overpass',
+                    lat: centerLat,
+                    lng: centerLng,
+                    heightMeters: heightMeters,
+                    heightFeet: (heightMeters * 3.28084).toFixed(1),
+                    distance: distance,
+                    isBridge: way.tags?.bridge === 'yes',
+                    isTunnel: way.tags?.tunnel === 'yes',
+                    highway: way.tags?.highway
+                });
+            }
+
+            // Sort by distance
+            overpasses.sort((a, b) => a.distance - b.distance);
+
+            return overpasses;
+        }
+
+        // Parse height string to meters
+        function parseHeight(heightStr) {
+            if (!heightStr) return null;
+
+            // Remove whitespace
+            const str = heightStr.trim();
+
+            // Feet and inches (e.g., "14'6\"" or "14' 6\"")
+            const feetInchMatch = str.match(/(\d+)'?\s*(\d+)?"?/);
+            if (feetInchMatch) {
+                const feet = parseInt(feetInchMatch[1]);
+                const inches = feetInchMatch[2] ? parseInt(feetInchMatch[2]) : 0;
+                return ((feet * 12) + inches) * 0.0254; // Convert to meters
+            }
+
+            // Just feet (e.g., "14'" or "14 ft")
+            const feetMatch = str.match(/(\d+\.?\d*)\s*'|ft|feet/i);
+            if (feetMatch) {
+                return parseFloat(feetMatch[1]) * 0.3048;
+            }
+
+            // Meters (e.g., "4.5" or "4.5 m")
+            const metersMatch = str.match(/(\d+\.?\d*)\s*m?/i);
+            if (metersMatch) {
+                return parseFloat(metersMatch[1]);
+            }
+
+            return null;
+        }
+
+        // Calculate distance between two points (Haversine formula)
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371000; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lng2 - lng1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c; // Distance in meters
+        }
+
+        // Display overpass alert
+        function showOverpassAlert(overpass) {
+            // Remove existing alert
+            if (activeOverpassAlert) {
+                activeOverpassAlert.remove();
+                activeOverpassAlert = null;
+            }
+
+            const vehicleClearance = getVehicleClearance();
+            const vehicleType = localStorage.getItem('vehicle_type') || 'car';
+
+            // Determine alert level
+            let alertLevel = 'normal';
+            let alertIcon = 'ℹ️';
+            let title = 'Overpass Ahead';
+
+            if (vehicleClearance !== null) {
+                if (overpass.heightMeters < vehicleClearance) {
+                    alertLevel = 'danger';
+                    alertIcon = '⚠️';
+                    title = 'LOW CLEARANCE WARNING!';
+                } else if (overpass.heightMeters < vehicleClearance + 0.5) {
+                    alertLevel = 'warning';
+                    alertIcon = '⚡';
+                    title = 'Tight Clearance Alert';
+                }
+            }
+
+            // Create alert element
+            const alert = document.createElement('div');
+            alert.className = `overpass-alert ${alertLevel}`;
+            alert.innerHTML = `
+                <div class="overpass-alert-title">${alertIcon} ${title}</div>
+                <div class="overpass-alert-details">
+                    ${overpass.name}<br>
+                    Clearance: ${overpass.heightFeet}' (${overpass.heightMeters.toFixed(2)}m)<br>
+                    Distance: ${(overpass.distance / 1609.34).toFixed(2)} miles
+                </div>
+            `;
+
+            document.body.appendChild(alert);
+            activeOverpassAlert = alert;
+
+            // Auto-dismiss after 8 seconds for normal alerts, 15 for warnings/danger
+            const dismissTime = alertLevel === 'normal' ? 8000 : 15000;
+            setTimeout(() => {
+                if (alert === activeOverpassAlert) {
+                    alert.style.animation = 'slideDown 0.3s ease-out reverse';
+                    setTimeout(() => {
+                        alert.remove();
+                        if (activeOverpassAlert === alert) {
+                            activeOverpassAlert = null;
+                        }
+                    }, 300);
+                }
+            }, dismissTime);
+        }
+
+        // Check for nearby overpasses
+        async function checkNearbyOverpasses(lat, lng) {
+            // Only check if position changed significantly (100m)
+            if (lastOverpassCheck) {
+                const dist = calculateDistance(
+                    lastOverpassCheck.lat,
+                    lastOverpassCheck.lng,
+                    lat,
+                    lng
+                );
+                if (dist < 100) return; // Too close to last check
+            }
+
+            lastOverpassCheck = { lat, lng };
+
+            // Fetch overpasses within 2km
+            nearbyOverpasses = await fetchNearbyOverpasses(lat, lng, 2000);
+
+            console.log(`Found ${nearbyOverpasses.length} overpasses nearby`);
+
+            // Show alert for closest overpass within 800m (0.5 miles)
+            const closeOverpass = nearbyOverpasses.find(op => op.distance <= 800);
+
+            if (closeOverpass) {
+                showOverpassAlert(closeOverpass);
             }
         }
 

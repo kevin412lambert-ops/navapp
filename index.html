@@ -2970,15 +2970,20 @@
                 // Positive Y offset shifts view up (user appears lower on screen)
                 const yOffset = containerHeight * 0.25;
 
+                // Preserve current pitch and bearing when recentering
                 map.easeTo({
                     center: [currentLocation.lng, currentLocation.lat],
                     offset: [0, yOffset],
+                    pitch: map.getPitch(),
+                    bearing: map.getBearing(),
                     duration: duration
                 });
             } else {
                 // In 2D mode: Center user in the middle of the screen
                 map.easeTo({
                     center: [currentLocation.lng, currentLocation.lat],
+                    pitch: map.getPitch(),
+                    bearing: map.getBearing(),
                     duration: duration
                 });
             }
@@ -2995,24 +3000,31 @@
 
             perspectiveMode = true;
 
-            // Animate to 3D perspective view
-            map.easeTo({
-                pitch: 45,
-                duration: 800
-            });
+            // Calculate center and offset for 3D mode
+            const container = map.getContainer();
+            const containerHeight = container.offsetHeight;
+            const yOffset = containerHeight * 0.25;
 
-            // If auto-rotation is enabled and we have a heading, apply it
-            if (autoRotationEnabled && lastBearing !== null) {
+            // Determine bearing
+            const bearing = (autoRotationEnabled && lastBearing !== null) ? lastBearing : 0;
+
+            // Combine all animations into a single easeTo call to prevent conflicts
+            if (currentLocation) {
                 map.easeTo({
-                    bearing: lastBearing,
+                    pitch: 45,
+                    bearing: bearing,
+                    center: [currentLocation.lng, currentLocation.lat],
+                    offset: [0, yOffset],
+                    duration: 800
+                });
+            } else {
+                // No location yet, just set pitch and bearing
+                map.easeTo({
+                    pitch: 45,
+                    bearing: bearing,
                     duration: 800
                 });
             }
-
-            // Center map with user at bottom 25%
-            setTimeout(() => {
-                centerMapOnUser(true);
-            }, 100);
 
             // Save to localStorage
             localStorage.setItem('perspective_mode', 'true');
@@ -3027,17 +3039,23 @@
         function disablePerspectiveMode() {
             perspectiveMode = false;
 
-            // Animate back to 2D flat view
-            map.easeTo({
-                pitch: 0,
-                bearing: 0,
-                duration: 800
-            });
-
-            // Recenter map with user in the middle
-            setTimeout(() => {
-                centerMapOnUser(true);
-            }, 100);
+            // Combine all animations into a single easeTo call to prevent conflicts
+            if (currentLocation) {
+                map.easeTo({
+                    pitch: 0,
+                    bearing: 0,
+                    center: [currentLocation.lng, currentLocation.lat],
+                    offset: [0, 0],  // No offset in 2D mode
+                    duration: 800
+                });
+            } else {
+                // No location yet, just reset pitch and bearing
+                map.easeTo({
+                    pitch: 0,
+                    bearing: 0,
+                    duration: 800
+                });
+            }
 
             // Save to localStorage
             localStorage.setItem('perspective_mode', 'false');

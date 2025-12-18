@@ -2018,14 +2018,6 @@
                 threeJsCamera = this.camera;
                 threeJsRenderer = this.renderer;
 
-                // TEST: Add a bright test cube to verify rendering works
-                // Use a model matrix approach for proper transformation
-                const testGeometry = new window.THREE.BoxGeometry(1, 1, 1);
-                const testMaterial = new window.THREE.MeshBasicMaterial({ color: 0xff0000 });
-                window.testCube = new window.THREE.Mesh(testGeometry, testMaterial);
-                this.scene.add(window.testCube);
-                console.log('TEST CUBE ADDED');
-
                 console.log('Three.js scene initialized:', this.scene);
                 console.log('Scene children (lights):', this.scene.children.length);
             },
@@ -2055,25 +2047,8 @@
                     renderDebugLogged = true;
                 }
 
-                // Don't override camera projection - we're using our own OrthographicCamera
-                // that matches Mercator coordinates (0-1 range)
-                this.camera.updateProjectionMatrix();
-
-                // TEST: Position the test cube using simple coordinates
-                if (window.testCube && currentLocation) {
-                    const mc = maplibregl.MercatorCoordinate.fromLngLat(
-                        [currentLocation.lng, currentLocation.lat],
-                        0
-                    );
-                    // Make it LARGE - 1% of screen (0.01 in Mercator space which is 0-1)
-                    const scale = 0.01;
-
-                    // Simple position-based approach
-                    window.testCube.position.set(mc.x, mc.y, 0.001);
-                    window.testCube.scale.set(scale, scale, scale);
-
-                    console.log('Test cube positioned at:', mc.x, mc.y, 'scale:', scale, 'SHOULD BE VISIBLE');
-                }
+                // Use MapLibre's projection matrix so objects follow the map
+                this.camera.projectionMatrix = new window.THREE.Matrix4().fromArray(matrix);
 
                 // Handle smooth position animation
                 if (targetModelPosition && currentModelPosition && activeModel) {
@@ -2129,13 +2104,6 @@
 
                 // Render Three.js
                 this.renderer.render(this.scene, this.camera);
-
-                // Draw red rectangle AFTER Three.js to verify it's not being covered
-                gl.scissor(50, 50, 100, 100);
-                gl.enable(gl.SCISSOR_TEST);
-                gl.clearColor(1.0, 0.0, 0.0, 1.0);
-                gl.clear(gl.COLOR_BUFFER_BIT);
-                gl.disable(gl.SCISSOR_TEST);
 
                 this.map.triggerRepaint();
             },

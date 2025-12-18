@@ -1035,6 +1035,9 @@
         let lastOverpassCheck = null; // Last GPS position where we checked
         let activeOverpassAlert = null; // Currently displayed alert
 
+        // Radar State
+        let radarLayerVisible = false; // Track if radar layer is currently visible
+
         // 3D Perspective View State
         let perspectiveMode = false; // Current view mode (false = 2D, true = 3D)
         let autoRotationEnabled = false; // Auto-rotation when driving
@@ -1510,6 +1513,7 @@
                 console.log('Map loaded successfully');
                 loadRadar(); // Add radar after style loads
                 startRadarRefresh(); // Start periodic radar refresh
+                startRadarRainCheck(); // Start periodic rain detection
                 addDecorativeTrees(savedStyle); // Add trees if cartoon/holiday theme
 
                 // Initialize house number layer
@@ -2883,9 +2887,11 @@
                     }
                 }, firstSymbolLayer ? firstSymbolLayer.id : undefined);
 
+                radarLayerVisible = true;
                 console.log('Radar overlay loaded successfully');
             } catch (error) {
                 console.error('Error loading radar:', error);
+                radarLayerVisible = false;
             }
         }
 
@@ -2895,6 +2901,30 @@
                 console.log('Refreshing radar data...');
                 loadRadar();
             }, 120000); // 2 minutes
+        }
+
+        // Check if radar layer is visible to user
+        function isRadarVisible() {
+            if (!map || !map.getLayer('radar-layer')) return false;
+
+            const zoom = map.getZoom();
+            const opacity = map.getPaintProperty('radar-layer', 'raster-opacity');
+
+            // Radar is visible if layer exists, zoom <= 8, and opacity > 0
+            return zoom <= 8 && opacity > 0;
+        }
+
+        // Periodically check for rain when radar is visible
+        function startRadarRainCheck() {
+            // Check for rain every 30 seconds when radar is visible
+            setInterval(() => {
+                if (isRadarVisible() && weatherData) {
+                    // Re-evaluate rain animation with current data
+                    const weatherCode = weatherData.condition;
+                    const precipitation = weatherData.precipitation;
+                    updateRainAnimation(weatherCode, precipitation);
+                }
+            }, 30000); // 30 seconds
         }
 
         // ==================== OVERPASS HEIGHT DETECTION ====================
@@ -4171,18 +4201,26 @@
             }
         }
 
-        // Update rain animation based on weather code and precipitation
+        // Update rain animation based on weather code and precipitation (multi-signal detection)
         function updateRainAnimation(weatherCode, precipitation) {
-            console.log('updateRainAnimation called with code:', weatherCode, 'precipitation:', precipitation);
+            console.log('Rain detection - Code:', weatherCode, 'Precip:', precipitation);
 
-            // Check if it's raining based on weather code OR precipitation
-            const isRainingByCode = weatherCode !== null && weatherCode !== undefined && isRainingWeatherCode(weatherCode);
-            const isRainingByPrecip = precipitation !== null && precipitation !== undefined && precipitation > 0;
-            const isRaining = isRainingByCode || isRainingByPrecip;
+            // Multi-signal detection
+            const rainByCode = weatherCode !== null && weatherCode !== undefined && isRainingWeatherCode(weatherCode);
+            const rainByPrecip = precipitation !== null && precipitation !== undefined && precipitation > 0;
+            const radarVisible = isRadarVisible();
+            const cloudyWithRadar = weatherCode === 3 && radarVisible;
 
-            console.log('Is raining by code:', isRainingByCode, 'by precipitation:', isRainingByPrecip, 'final:', isRaining);
+            // Show rain if:
+            // 1. Weather code indicates rain (strong signal)
+            // 2. Precipitation detected (strong signal)
+            // 3. Cloudy AND radar showing (medium signal - catches overhead rain)
+            const shouldShow = rainByCode || rainByPrecip || cloudyWithRadar;
 
-            if (isRaining) {
+            console.log('Rain signals - byCode:', rainByCode, 'byPrecip:', rainByPrecip,
+                        'cloudyWithRadar:', cloudyWithRadar, 'radarVisible:', radarVisible, 'final:', shouldShow);
+
+            if (shouldShow) {
                 showRain();
             } else {
                 hideRain();

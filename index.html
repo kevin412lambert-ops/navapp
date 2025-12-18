@@ -1554,6 +1554,7 @@
                 } else {
                     // Zoomed in enough - re-enable perspective if it was auto-disabled
                     if (perspectiveDisabledByZoom) {
+                        console.log(`Auto-re-enable triggered - savedAutoRotationState: ${savedAutoRotationState}`);
                         perspectiveDisabledByZoom = false;
 
                         // Restore saved auto-rotation state
@@ -1563,6 +1564,7 @@
 
                         // Manually re-enable perspective mode
                         perspectiveMode = true;
+                        console.log(`perspectiveMode set to: ${perspectiveMode}`);
 
                         // Calculate center and offset for 3D mode
                         const container = map.getContainer();
@@ -3062,20 +3064,22 @@
                 // Positive Y offset shifts view up (user appears lower on screen)
                 const yOffset = containerHeight * 0.25;
 
-                // Preserve current pitch and bearing when recentering
+                // Use current pitch and bearing (should be 45 and rotating)
                 map.easeTo({
                     center: [currentLocation.lng, currentLocation.lat],
                     offset: [0, yOffset],
-                    pitch: map.getPitch(),
+                    pitch: 45,
                     bearing: map.getBearing(),
                     duration: duration
                 });
             } else {
                 // In 2D mode: Center user in the middle of the screen
+                // Always use pitch 0 and bearing 0 in 2D mode
                 map.easeTo({
                     center: [currentLocation.lng, currentLocation.lat],
-                    pitch: map.getPitch(),
-                    bearing: map.getBearing(),
+                    offset: [0, 0],
+                    pitch: 0,
+                    bearing: 0,
                     duration: duration
                 });
             }
@@ -3160,12 +3164,16 @@
 
         // Toggle between 2D and 3D modes
         function togglePerspectiveMode() {
+            console.log(`Toggle called - perspectiveMode: ${perspectiveMode}, perspectiveDisabledByZoom: ${perspectiveDisabledByZoom}`);
+
             // Clear auto-disable flag when user manually toggles
             perspectiveDisabledByZoom = false;
 
             if (perspectiveMode) {
+                console.log('Calling disablePerspectiveMode()');
                 disablePerspectiveMode();
             } else {
+                console.log('Calling enablePerspectiveMode()');
                 enablePerspectiveMode();
             }
         }

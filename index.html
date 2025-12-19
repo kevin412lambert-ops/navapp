@@ -1577,6 +1577,11 @@
                 }
             });
 
+            // Update marker scale during zoom for smooth scaling
+            map.on('zoom', () => {
+                updateMarkerScale();
+            });
+
             // Update zoom slider when map zooms
             map.on('zoomend', () => {
                 const zoom = Math.round(map.getZoom());
@@ -2041,6 +2046,10 @@
             return markerEl;
         }
 
+        // Track the reference zoom level for constant marker size
+        let referenceZoomLevel = null;
+        let currentHeading = 0;
+
         // Update marker rotation based on GPS heading
         function updateMarkerRotation(heading) {
             if (!userMarker) return;
@@ -2050,13 +2059,41 @@
                 heading = 0;
             }
 
-            // Get the marker element and apply rotation to the SVG inside it
-            // IMPORTANT: Don't rotate markerEl itself - MapLibre uses that for positioning!
+            currentHeading = heading;
+            updateMarkerTransform();
+        }
+
+        // Update marker scale to maintain constant size across zoom levels
+        function updateMarkerScale() {
+            if (!userMarker || !map) return;
+
+            // Set reference zoom on first call
+            if (referenceZoomLevel === null) {
+                referenceZoomLevel = map.getZoom();
+            }
+
+            updateMarkerTransform();
+        }
+
+        // Apply both rotation and scale transforms to the marker SVG
+        function updateMarkerTransform() {
+            if (!userMarker) return;
+
             const markerEl = userMarker.getElement();
             if (markerEl) {
                 const svg = markerEl.querySelector('svg');
                 if (svg) {
-                    svg.style.transform = `rotate(${heading}deg)`;
+                    // Calculate scale factor to keep constant screen size
+                    let scaleFactor = 1;
+                    if (referenceZoomLevel !== null && map) {
+                        const currentZoom = map.getZoom();
+                        const zoomDiff = referenceZoomLevel - currentZoom;
+                        // Scale inversely to zoom: when zooming out (negative diff), scale up
+                        scaleFactor = Math.pow(2, zoomDiff);
+                    }
+
+                    // Apply both rotation and scale
+                    svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
                 }
             }
         }
@@ -2335,6 +2372,9 @@
                 if (currentLocation && currentLocation.heading !== null) {
                     updateMarkerRotation(currentLocation.heading);
                 }
+
+                // Initialize marker scale to maintain constant size across zoom levels
+                updateMarkerScale();
 
                 // Enable 3D perspective mode on first GPS lock
                 // First check if zoom is sufficient

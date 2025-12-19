@@ -1594,6 +1594,10 @@
                 if (slider) slider.value = zoom;
                 if (valueDisplay) valueDisplay.textContent = zoom;
 
+                // Update tree visibility based on zoom level
+                const savedStyle = localStorage.getItem('map_style') || 'voyager';
+                updateDecorativeTrees(savedStyle);
+
                 // Check if we need to disable/enable perspective mode based on zoom
                 const currentZoom = map.getZoom();
 
@@ -3944,14 +3948,15 @@
 
         // Update trees based on current viewport
         function updateDecorativeTrees(themeName) {
-            // Only show trees for cartoon and holiday themes
+            // Only show trees for cartoon and holiday themes AND zoom >= 16
+            const currentZoom = map ? map.getZoom() : 0;
             const shouldShowTrees = themeName && (
                 themeName.includes('cartoon') ||
                 themeName.includes('holiday')
-            );
+            ) && currentZoom >= 16;
 
             if (!shouldShowTrees || !map || !currentLocation) {
-                // Clear all trees if wrong theme or no GPS
+                // Clear all trees if wrong theme, no GPS, or zoom too low
                 decorativeTreeMarkers.forEach(marker => marker.remove());
                 decorativeTreeMarkers.clear();
                 lastTreeUpdateLocation = null;

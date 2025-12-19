@@ -620,7 +620,8 @@
         }
 
         /* GPS Marker - smooth rotation transition */
-        .user-marker {
+        /* Apply transition to SVG, not marker container (MapLibre uses container for positioning) */
+        .user-marker svg {
             transition: transform 0.3s ease;
         }
     </style>
@@ -1919,8 +1920,8 @@
         function createVehicleMarkerElement(fillColor, borderColor) {
             const markerEl = document.createElement('div');
             markerEl.className = 'user-marker';
-            markerEl.style.width = '40px';
-            markerEl.style.height = '40px';
+            markerEl.style.width = '80px';
+            markerEl.style.height = '80px';
             markerEl.style.position = 'relative';
             markerEl.style.display = 'flex';
             markerEl.style.alignItems = 'center';
@@ -1929,9 +1930,9 @@
             // Create SVG element (top-down car view)
             const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             svg.setAttribute('viewBox', '0 0 40 60');
-            svg.setAttribute('width', '40');
-            svg.setAttribute('height', '40');
-            svg.style.filter = 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
+            svg.setAttribute('width', '80');
+            svg.setAttribute('height', '80');
+            svg.style.filter = 'drop-shadow(0 4px 12px rgba(0,0,0,0.6))';
 
             // Create gradient for 3D depth effect
             const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -2049,10 +2050,14 @@
                 heading = 0;
             }
 
-            // Get the marker element and apply rotation
+            // Get the marker element and apply rotation to the SVG inside it
+            // IMPORTANT: Don't rotate markerEl itself - MapLibre uses that for positioning!
             const markerEl = userMarker.getElement();
             if (markerEl) {
-                markerEl.style.transform = `rotate(${heading}deg)`;
+                const svg = markerEl.querySelector('svg');
+                if (svg) {
+                    svg.style.transform = `rotate(${heading}deg)`;
+                }
             }
         }
 

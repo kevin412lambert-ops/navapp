@@ -619,11 +619,13 @@
             display: block;
         }
 
-        /* GPS Marker - smooth rotation and scale transitions */
-        /* Apply transition to SVG, not marker container (MapLibre uses container for positioning) */
+        /* GPS Marker - instant transform updates */
+        /* Apply to SVG, not marker container (MapLibre uses container for positioning) */
+        /* No CSS transition - zoom event fires frequently enough for smooth updates */
         .user-marker svg {
-            transition: transform 0.2s ease-out;
+            transition: none;
             transform-origin: center center;
+            will-change: transform;
         }
     </style>
 </head>
@@ -1578,8 +1580,9 @@
                 }
             });
 
-            // Update marker scale during zoom for smooth scaling
+            // Update marker during zoom for smooth scaling and type swapping
             map.on('zoom', () => {
+                checkAndSwapMarkerType(); // Swap between car and dot at zoom 16
                 updateMarkerScale();
             });
 
@@ -2047,9 +2050,23 @@
             return markerEl;
         }
 
-        // Track the reference zoom level and current heading
+        // Create simple dot marker element (used for zoom < 16)
+        function createSimpleDotMarkerElement(fillColor, borderColor) {
+            const markerEl = document.createElement('div');
+            markerEl.className = 'user-marker user-marker-dot';
+            markerEl.style.width = '20px';
+            markerEl.style.height = '20px';
+            markerEl.style.borderRadius = '50%';
+            markerEl.style.backgroundColor = fillColor;
+            markerEl.style.border = `3px solid ${borderColor}`;
+            markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
+            return markerEl;
+        }
+
+        // Track the reference zoom level, current heading, and marker type
         let referenceZoomLevel = null;
         let currentHeading = 0;
+        let currentMarkerType = null; // 'car' or 'dot'
 
         // Update marker rotation based on GPS heading
         function updateMarkerRotation(heading) {
@@ -2084,18 +2101,66 @@
             if (markerEl) {
                 const svg = markerEl.querySelector('svg');
                 if (svg) {
-                    // Calculate scale factor to scale WITH zoom (like map features)
-                    let scaleFactor = 1;
-                    if (referenceZoomLevel !== null && map) {
-                        const currentZoom = map.getZoom();
-                        const zoomDiff = currentZoom - referenceZoomLevel;
-                        // Scale with zoom: zooming in = bigger, zooming out = smaller
-                        scaleFactor = Math.pow(2, zoomDiff);
-                    }
+                    // Only apply scaling and rotation for car icon (zoom > 16)
+                    if (currentMarkerType === 'car') {
+                        // Calculate scale factor to scale WITH zoom (like map features)
+                        let scaleFactor = 1;
+                        if (referenceZoomLevel !== null && map) {
+                            const currentZoom = map.getZoom();
+                            const zoomDiff = currentZoom - referenceZoomLevel;
+                            // Scale with zoom: zooming in = bigger, zooming out = smaller
+                            scaleFactor = Math.pow(2, zoomDiff);
+                        }
 
-                    // Apply both rotation and scale
-                    // IMPORTANT: Don't transform markerEl itself - MapLibre uses that for positioning!
-                    svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
+                        // Apply both rotation and scale
+                        // IMPORTANT: Don't transform markerEl itself - MapLibre uses that for positioning!
+                        svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
+                    }
+                    // Dot doesn't need rotation or scaling
+                }
+            }
+        }
+
+        // Swap between car and dot marker based on zoom level
+        function checkAndSwapMarkerType() {
+            if (!userMarker || !map) return;
+
+            const currentZoom = map.getZoom();
+            const shouldBeCar = currentZoom > 16;
+            const desiredType = shouldBeCar ? 'car' : 'dot';
+
+            // Only swap if the type needs to change
+            if (currentMarkerType !== desiredType) {
+                const currentPos = userMarker.getLngLat();
+
+                // Remove old marker
+                userMarker.remove();
+
+                // Create new marker with appropriate type
+                let markerEl;
+                if (desiredType === 'car') {
+                    markerEl = createVehicleMarkerElement(markerFillColor, markerBorderColor);
+                    // Set reference zoom when switching to car
+                    referenceZoomLevel = currentZoom;
+                } else {
+                    markerEl = createSimpleDotMarkerElement(markerFillColor, markerBorderColor);
+                    // Clear reference zoom when switching to dot
+                    referenceZoomLevel = null;
+                }
+
+                // Create new marker at same position
+                userMarker = new maplibregl.Marker({
+                    element: markerEl,
+                    anchor: 'center'
+                })
+                .setLngLat([currentPos.lng, currentPos.lat])
+                .addTo(map);
+
+                currentMarkerType = desiredType;
+
+                // Apply initial transform if car
+                if (desiredType === 'car') {
+                    updateMarkerTransform();
                 }
             }
         }
@@ -2112,29 +2177,35 @@
             const markerEl = userMarker.getElement();
             if (!markerEl) return;
 
-            // Update gradient colors for 3D effect
-            const gradient = markerEl.querySelector('#carGradient');
-            if (gradient) {
-                const stops = gradient.querySelectorAll('stop');
-                if (stops[0]) stops[0].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
-                if (stops[1]) stops[1].setAttribute('style', `stop-color:${fillColor};stop-opacity:1`);
-                if (stops[2]) stops[2].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
+            if (currentMarkerType === 'car') {
+                // Update car icon colors
+                const gradient = markerEl.querySelector('#carGradient');
+                if (gradient) {
+                    const stops = gradient.querySelectorAll('stop');
+                    if (stops[0]) stops[0].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
+                    if (stops[1]) stops[1].setAttribute('style', `stop-color:${fillColor};stop-opacity:1`);
+                    if (stops[2]) stops[2].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
+                }
+
+                // Update main car body stroke (border color)
+                const paths = markerEl.querySelectorAll('path');
+                if (paths[0]) paths[0].setAttribute('stroke', borderColor); // Main body
+                if (paths[1]) paths[1].setAttribute('fill', fillColor); // Hood
+
+                // Update roof color
+                const rects = markerEl.querySelectorAll('rect');
+                if (rects[2]) rects[2].setAttribute('fill', fillColor); // Roof (third rect)
+
+                // Update side mirrors
+                const ellipses = markerEl.querySelectorAll('ellipse');
+                ellipses.forEach(mirror => {
+                    mirror.setAttribute('fill', fillColor);
+                });
+            } else if (currentMarkerType === 'dot') {
+                // Update simple dot colors
+                markerEl.style.backgroundColor = fillColor;
+                markerEl.style.border = `3px solid ${borderColor}`;
             }
-
-            // Update main car body stroke (border color)
-            const paths = markerEl.querySelectorAll('path');
-            if (paths[0]) paths[0].setAttribute('stroke', borderColor); // Main body
-            if (paths[1]) paths[1].setAttribute('fill', fillColor); // Hood
-
-            // Update roof color
-            const rects = markerEl.querySelectorAll('rect');
-            if (rects[2]) rects[2].setAttribute('fill', fillColor); // Roof (third rect)
-
-            // Update side mirrors
-            const ellipses = markerEl.querySelectorAll('ellipse');
-            ellipses.forEach(mirror => {
-                mirror.setAttribute('fill', fillColor);
-            });
         }
 
         function animateMarkerAlongRoad() {
@@ -2360,8 +2431,19 @@
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 
-                // Create custom marker element for MapLibre (vehicle icon)
-                const markerEl = createVehicleMarkerElement(markerFillColor, markerBorderColor);
+                // Determine marker type based on initial zoom level
+                const initialZoom = map.getZoom();
+                let markerEl;
+                if (initialZoom > 16) {
+                    // Create car icon for zoom > 16
+                    markerEl = createVehicleMarkerElement(markerFillColor, markerBorderColor);
+                    currentMarkerType = 'car';
+                    referenceZoomLevel = initialZoom;
+                } else {
+                    // Create simple dot for zoom <= 16
+                    markerEl = createSimpleDotMarkerElement(markerFillColor, markerBorderColor);
+                    currentMarkerType = 'dot';
+                }
 
                 userMarker = new maplibregl.Marker({
                     element: markerEl,
@@ -2370,13 +2452,15 @@
                 .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
                 .addTo(map);
 
-                // Set initial rotation based on GPS heading
-                if (currentLocation && currentLocation.heading !== null) {
+                // Set initial rotation based on GPS heading (only for car)
+                if (currentMarkerType === 'car' && currentLocation && currentLocation.heading !== null) {
                     updateMarkerRotation(currentLocation.heading);
                 }
 
-                // Initialize marker scale to scale with zoom level
-                updateMarkerScale();
+                // Initialize marker scale if car
+                if (currentMarkerType === 'car') {
+                    updateMarkerScale();
+                }
 
                 // Enable 3D perspective mode on first GPS lock
                 // First check if zoom is sufficient

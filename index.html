@@ -1584,6 +1584,10 @@
             map.on('zoom', () => {
                 checkAndSwapMarkerType(); // Swap between car and dot at zoom 16
                 updateMarkerScale();
+
+                // Update trees in real-time during zoom
+                const savedStyle = localStorage.getItem('map_style') || 'voyager';
+                updateDecorativeTrees(savedStyle);
             });
 
             // Update zoom slider when map zooms
@@ -1593,10 +1597,6 @@
                 const valueDisplay = document.getElementById('map-zoom-value');
                 if (slider) slider.value = zoom;
                 if (valueDisplay) valueDisplay.textContent = zoom;
-
-                // Update tree visibility based on zoom level
-                const savedStyle = localStorage.getItem('map_style') || 'voyager';
-                updateDecorativeTrees(savedStyle);
 
                 // Check if we need to disable/enable perspective mode based on zoom
                 const currentZoom = map.getZoom();
@@ -2104,24 +2104,23 @@
             const markerEl = userMarker.getElement();
             if (markerEl) {
                 const svg = markerEl.querySelector('svg');
-                if (svg) {
-                    // Only apply scaling and rotation for car icon (zoom > 16)
-                    if (currentMarkerType === 'car') {
-                        // Calculate scale factor to scale WITH zoom (like map features)
-                        let scaleFactor = 1;
-                        if (referenceZoomLevel !== null && map) {
-                            const currentZoom = map.getZoom();
-                            const zoomDiff = currentZoom - referenceZoomLevel;
-                            // Scale with zoom: zooming in = bigger, zooming out = smaller
-                            scaleFactor = Math.pow(2, zoomDiff);
-                        }
-
-                        // Apply both rotation and scale
-                        // IMPORTANT: Don't transform markerEl itself - MapLibre uses that for positioning!
-                        svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
+                if (svg && currentMarkerType === 'car') {
+                    // Only apply scaling and rotation for car icon
+                    // Calculate scale factor to scale WITH zoom (like map features)
+                    let scaleFactor = 1;
+                    if (referenceZoomLevel !== null && map) {
+                        const currentZoom = map.getZoom();
+                        const zoomDiff = currentZoom - referenceZoomLevel;
+                        // Scale with zoom: zooming in = bigger, zooming out = smaller
+                        scaleFactor = Math.pow(2, zoomDiff);
+                        console.log(`[CAR SCALE] zoom=${currentZoom.toFixed(1)}, ref=${referenceZoomLevel.toFixed(1)}, diff=${zoomDiff.toFixed(2)}, scale=${scaleFactor.toFixed(2)}`);
                     }
-                    // Dot doesn't need rotation or scaling
+
+                    // Apply both rotation and scale
+                    // IMPORTANT: Don't transform markerEl itself - MapLibre uses that for positioning!
+                    svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
                 }
+                // Dot doesn't have SVG and doesn't need rotation or scaling
             }
         }
 
@@ -2144,12 +2143,14 @@
                 let markerEl;
                 if (desiredType === 'car') {
                     markerEl = createVehicleMarkerElement(markerFillColor, markerBorderColor);
-                    // Set reference zoom when switching to car
-                    referenceZoomLevel = currentZoom;
+                    // Set reference zoom ONLY on first car creation (not when swapping back)
+                    if (referenceZoomLevel === null) {
+                        referenceZoomLevel = currentZoom;
+                        console.log(`[CAR] Setting initial reference zoom: ${referenceZoomLevel.toFixed(1)}`);
+                    }
                 } else {
                     markerEl = createSimpleDotMarkerElement(markerFillColor, markerBorderColor);
-                    // Clear reference zoom when switching to dot
-                    referenceZoomLevel = null;
+                    // Keep reference zoom even when switching to dot (for when we swap back to car)
                 }
 
                 // Create new marker at same position
@@ -3955,8 +3956,13 @@
                 themeName.includes('holiday')
             ) && currentZoom >= 16;
 
+            console.log(`[TREES] zoom=${currentZoom.toFixed(1)}, theme=${themeName}, shouldShow=${shouldShowTrees}, currentTrees=${decorativeTreeMarkers.size}`);
+
             if (!shouldShowTrees || !map || !currentLocation) {
                 // Clear all trees if wrong theme, no GPS, or zoom too low
+                if (decorativeTreeMarkers.size > 0) {
+                    console.log(`[TREES] Removing ${decorativeTreeMarkers.size} trees`);
+                }
                 decorativeTreeMarkers.forEach(marker => marker.remove());
                 decorativeTreeMarkers.clear();
                 lastTreeUpdateLocation = null;

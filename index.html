@@ -1919,36 +1919,124 @@
         function createVehicleMarkerElement(fillColor, borderColor) {
             const markerEl = document.createElement('div');
             markerEl.className = 'user-marker';
-            markerEl.style.width = '32px';
-            markerEl.style.height = '32px';
+            markerEl.style.width = '40px';
+            markerEl.style.height = '40px';
             markerEl.style.position = 'relative';
             markerEl.style.display = 'flex';
             markerEl.style.alignItems = 'center';
             markerEl.style.justifyContent = 'center';
 
-            // Create SVG element
+            // Create SVG element (top-down car view)
             const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('viewBox', '0 0 24 36');
-            svg.setAttribute('width', '32');
-            svg.setAttribute('height', '32');
-            svg.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))';
+            svg.setAttribute('viewBox', '0 0 40 60');
+            svg.setAttribute('width', '40');
+            svg.setAttribute('height', '40');
+            svg.style.filter = 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
 
-            // Vehicle body path - simple car/truck shape viewed from above
-            const bodyPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            bodyPath.setAttribute('d', 'M 8 4 L 16 4 L 18 8 L 18 30 L 16 34 L 8 34 L 6 30 L 6 8 Z');
-            bodyPath.setAttribute('fill', fillColor);
-            bodyPath.setAttribute('stroke', borderColor);
-            bodyPath.setAttribute('stroke-width', '1.5');
+            // Create gradient for 3D depth effect
+            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+            gradient.setAttribute('id', 'carGradient');
+            gradient.setAttribute('x1', '0%');
+            gradient.setAttribute('y1', '0%');
+            gradient.setAttribute('x2', '100%');
+            gradient.setAttribute('y2', '0%');
 
-            // Front chevron indicator - points forward (direction of travel)
-            const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            chevron.setAttribute('points', '12,2 8,6 16,6');
-            chevron.setAttribute('fill', borderColor);
+            const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+            stop1.setAttribute('offset', '0%');
+            stop1.setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
 
-            svg.appendChild(bodyPath);
-            svg.appendChild(chevron);
+            const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+            stop2.setAttribute('offset', '50%');
+            stop2.setAttribute('style', `stop-color:${fillColor};stop-opacity:1`);
+
+            const stop3 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+            stop3.setAttribute('offset', '100%');
+            stop3.setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
+
+            gradient.appendChild(stop1);
+            gradient.appendChild(stop2);
+            gradient.appendChild(stop3);
+            defs.appendChild(gradient);
+            svg.appendChild(defs);
+
+            // Main car body (rounded rectangle with tapered front and back)
+            const carBody = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            carBody.setAttribute('d', 'M 15 8 L 25 8 L 28 12 L 28 48 L 25 52 L 15 52 L 12 48 L 12 12 Z');
+            carBody.setAttribute('fill', 'url(#carGradient)');
+            carBody.setAttribute('stroke', borderColor);
+            carBody.setAttribute('stroke-width', '2');
+            carBody.setAttribute('stroke-linejoin', 'round');
+
+            // Front hood (darker shade for depth)
+            const hood = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hood.setAttribute('d', 'M 15 8 L 25 8 L 27 11 L 27 18 L 13 18 L 13 11 Z');
+            hood.setAttribute('fill', fillColor);
+            hood.setAttribute('opacity', '0.4');
+
+            // Windshield (lighter for glass effect)
+            const windshield = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            windshield.setAttribute('x', '14');
+            windshield.setAttribute('y', '19');
+            windshield.setAttribute('width', '12');
+            windshield.setAttribute('height', '8');
+            windshield.setAttribute('fill', '#87CEEB');
+            windshield.setAttribute('opacity', '0.6');
+            windshield.setAttribute('rx', '1');
+
+            // Roof/cabin area
+            const roof = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            roof.setAttribute('x', '13');
+            roof.setAttribute('y', '28');
+            roof.setAttribute('width', '14');
+            roof.setAttribute('height', '16');
+            roof.setAttribute('fill', fillColor);
+            roof.setAttribute('opacity', '0.5');
+            roof.setAttribute('rx', '1');
+
+            // Rear window
+            const rearWindow = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rearWindow.setAttribute('x', '14');
+            rearWindow.setAttribute('y', '45');
+            rearWindow.setAttribute('width', '12');
+            rearWindow.setAttribute('height', '6');
+            rearWindow.setAttribute('fill', '#87CEEB');
+            rearWindow.setAttribute('opacity', '0.6');
+            rearWindow.setAttribute('rx', '1');
+
+            // Left side mirror
+            const leftMirror = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+            leftMirror.setAttribute('cx', '10');
+            leftMirror.setAttribute('cy', '28');
+            leftMirror.setAttribute('rx', '2');
+            leftMirror.setAttribute('ry', '1.5');
+            leftMirror.setAttribute('fill', fillColor);
+
+            // Right side mirror
+            const rightMirror = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+            rightMirror.setAttribute('cx', '30');
+            rightMirror.setAttribute('cy', '28');
+            rightMirror.setAttribute('rx', '2');
+            rightMirror.setAttribute('ry', '1.5');
+            rightMirror.setAttribute('fill', fillColor);
+
+            // Front headlights/direction indicator
+            const frontIndicator = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            frontIndicator.setAttribute('points', '20,4 16,8 24,8');
+            frontIndicator.setAttribute('fill', '#FFEB3B');
+            frontIndicator.setAttribute('opacity', '0.9');
+
+            // Assemble the car (order matters for layering)
+            svg.appendChild(carBody);
+            svg.appendChild(hood);
+            svg.appendChild(windshield);
+            svg.appendChild(roof);
+            svg.appendChild(rearWindow);
+            svg.appendChild(leftMirror);
+            svg.appendChild(rightMirror);
+            svg.appendChild(frontIndicator);
+
             markerEl.appendChild(svg);
-
             return markerEl;
         }
 
@@ -1980,18 +2068,29 @@
             const markerEl = userMarker.getElement();
             if (!markerEl) return;
 
-            // Find SVG elements and update their colors
-            const bodyPath = markerEl.querySelector('path');
-            const chevron = markerEl.querySelector('polygon');
-
-            if (bodyPath) {
-                bodyPath.setAttribute('fill', fillColor);
-                bodyPath.setAttribute('stroke', borderColor);
+            // Update gradient colors for 3D effect
+            const gradient = markerEl.querySelector('#carGradient');
+            if (gradient) {
+                const stops = gradient.querySelectorAll('stop');
+                if (stops[0]) stops[0].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
+                if (stops[1]) stops[1].setAttribute('style', `stop-color:${fillColor};stop-opacity:1`);
+                if (stops[2]) stops[2].setAttribute('style', `stop-color:${fillColor};stop-opacity:0.8`);
             }
 
-            if (chevron) {
-                chevron.setAttribute('fill', borderColor);
-            }
+            // Update main car body stroke (border color)
+            const paths = markerEl.querySelectorAll('path');
+            if (paths[0]) paths[0].setAttribute('stroke', borderColor); // Main body
+            if (paths[1]) paths[1].setAttribute('fill', fillColor); // Hood
+
+            // Update roof color
+            const rects = markerEl.querySelectorAll('rect');
+            if (rects[2]) rects[2].setAttribute('fill', fillColor); // Roof (third rect)
+
+            // Update side mirrors
+            const ellipses = markerEl.querySelectorAll('ellipse');
+            ellipses.forEach(mirror => {
+                mirror.setAttribute('fill', fillColor);
+            });
         }
 
         function animateMarkerAlongRoad() {

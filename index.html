@@ -618,6 +618,11 @@
         .login-error.show {
             display: block;
         }
+
+        /* GPS Marker - smooth rotation transition */
+        .user-marker {
+            transition: transform 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -940,6 +945,19 @@
                                     <input type="range" id="text-size-slider" min="8" max="26" value="18" style="width: 80px;">
                                     <span id="text-size-value" style="font-size: 11px; color: #f97316; min-width: 30px;">18px</span>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Vehicle Marker -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="color: #f97316; font-size: 12px; font-weight: bold; margin-bottom: 6px;">Vehicle Marker</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; color: #ccc;">Marker Color:</label>
+                                <input type="color" id="color-marker" value="#4285F4" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 11px; color: #ccc;">Border Color:</label>
+                                <input type="color" id="color-marker-border" value="#FFFFFF" style="width: 50px; height: 28px; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
                             </div>
                         </div>
 
@@ -1783,6 +1801,17 @@
                 isUnreliable: isUnreliable // Flag for GPS glitches
             };
 
+            // Track and preserve heading for GPS signal recovery
+            if (currentLocation.heading === null && lastKnownHeading !== null) {
+                // Use last known heading if current is unavailable
+                currentLocation.heading = lastKnownHeading;
+            }
+
+            if (currentLocation.heading !== null) {
+                // Update last known heading when we have valid data
+                lastKnownHeading = currentLocation.heading;
+            }
+
             // Flag for sync transition if recovering from signal loss
             if (gpsRecovered) {
                 currentLocation.requiresSyncTransition = true;
@@ -1881,6 +1910,90 @@
         }
 
         // ==================== MAP MARKER ====================
+        // Global variables for marker customization
+        let markerFillColor = '#4285F4'; // Default Google Maps blue
+        let markerBorderColor = '#FFFFFF'; // Default white border
+        let lastKnownHeading = null; // Track last valid heading for GPS recovery
+
+        // Create SVG vehicle icon element
+        function createVehicleMarkerElement(fillColor, borderColor) {
+            const markerEl = document.createElement('div');
+            markerEl.className = 'user-marker';
+            markerEl.style.width = '32px';
+            markerEl.style.height = '32px';
+            markerEl.style.position = 'relative';
+            markerEl.style.display = 'flex';
+            markerEl.style.alignItems = 'center';
+            markerEl.style.justifyContent = 'center';
+
+            // Create SVG element
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', '0 0 24 36');
+            svg.setAttribute('width', '32');
+            svg.setAttribute('height', '32');
+            svg.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))';
+
+            // Vehicle body path - simple car/truck shape viewed from above
+            const bodyPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            bodyPath.setAttribute('d', 'M 8 4 L 16 4 L 18 8 L 18 30 L 16 34 L 8 34 L 6 30 L 6 8 Z');
+            bodyPath.setAttribute('fill', fillColor);
+            bodyPath.setAttribute('stroke', borderColor);
+            bodyPath.setAttribute('stroke-width', '1.5');
+
+            // Front chevron indicator - points forward (direction of travel)
+            const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            chevron.setAttribute('points', '12,2 8,6 16,6');
+            chevron.setAttribute('fill', borderColor);
+
+            svg.appendChild(bodyPath);
+            svg.appendChild(chevron);
+            markerEl.appendChild(svg);
+
+            return markerEl;
+        }
+
+        // Update marker rotation based on GPS heading
+        function updateMarkerRotation(heading) {
+            if (!userMarker) return;
+
+            // Use fallback to 0 (north) if heading unavailable
+            if (heading === null || heading === undefined) {
+                heading = 0;
+            }
+
+            // Get the marker element and apply rotation
+            const markerEl = userMarker.getElement();
+            if (markerEl) {
+                markerEl.style.transform = `rotate(${heading}deg)`;
+            }
+        }
+
+        // Apply custom colors to the marker
+        function applyMarkerColors(fillColor, borderColor) {
+            // Update global color variables
+            markerFillColor = fillColor;
+            markerBorderColor = borderColor;
+
+            // If marker doesn't exist yet, colors will be applied when it's created
+            if (!userMarker) return;
+
+            const markerEl = userMarker.getElement();
+            if (!markerEl) return;
+
+            // Find SVG elements and update their colors
+            const bodyPath = markerEl.querySelector('path');
+            const chevron = markerEl.querySelector('polygon');
+
+            if (bodyPath) {
+                bodyPath.setAttribute('fill', fillColor);
+                bodyPath.setAttribute('stroke', borderColor);
+            }
+
+            if (chevron) {
+                chevron.setAttribute('fill', borderColor);
+            }
+        }
+
         function animateMarkerAlongRoad() {
             // Cancel any ongoing animation
             if (markerAnimation) {
@@ -1928,6 +2041,11 @@
                         // Update marker position
                         userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
 
+                        // Update rotation if heading is available
+                        if (currentLocation && currentLocation.heading !== null) {
+                            updateMarkerRotation(currentLocation.heading);
+                        }
+
                         // Update cache
                         roadGeometryCache.currentPosition = newPosition;
 
@@ -1945,6 +2063,12 @@
                     const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
 
                     userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+
+                    // Update rotation if heading is available
+                    if (currentLocation && currentLocation.heading !== null) {
+                        updateMarkerRotation(currentLocation.heading);
+                    }
+
                     isExtrapolating = true;
                     markerAnimation = requestAnimationFrame(animate);
                 }
@@ -1974,6 +2098,11 @@
                 const lng = startLng + (targetLng - startLng) * easeProgress;
 
                 userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+
+                // Update rotation if heading is available
+                if (currentLocation && currentLocation.heading !== null) {
+                    updateMarkerRotation(currentLocation.heading);
+                }
 
                 if (progress < 1) {
                     markerAnimation = requestAnimationFrame(animate);
@@ -2088,15 +2217,8 @@
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 
-                // Create custom marker element for MapLibre
-                const markerEl = document.createElement('div');
-                markerEl.className = 'user-marker';
-                markerEl.style.width = '20px';
-                markerEl.style.height = '20px';
-                markerEl.style.borderRadius = '50%';
-                markerEl.style.backgroundColor = '#4285F4';
-                markerEl.style.border = '3px solid #ffffff';
-                markerEl.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
+                // Create custom marker element for MapLibre (vehicle icon)
+                const markerEl = createVehicleMarkerElement(markerFillColor, markerBorderColor);
 
                 userMarker = new maplibregl.Marker({
                     element: markerEl,
@@ -2104,6 +2226,11 @@
                 })
                 .setLngLat([initialLng, initialLat]) // [lng, lat] - REVERSED!
                 .addTo(map);
+
+                // Set initial rotation based on GPS heading
+                if (currentLocation && currentLocation.heading !== null) {
+                    updateMarkerRotation(currentLocation.heading);
+                }
 
                 // Enable 3D perspective mode on first GPS lock
                 // First check if zoom is sufficient
@@ -4693,7 +4820,9 @@
                 park: document.getElementById('color-park').value,
                 background: document.getElementById('color-background').value,
                 text: document.getElementById('color-text').value,
-                textSize: parseInt(document.getElementById('text-size-slider').value)
+                textSize: parseInt(document.getElementById('text-size-slider').value),
+                markerFill: document.getElementById('color-marker').value,
+                markerBorder: document.getElementById('color-marker-border').value
             };
 
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -4706,6 +4835,9 @@
                 map.once('styledata', () => {
                     loadRadar();
                 });
+
+                // Apply marker colors
+                applyMarkerColors(customColors.markerFill, customColors.markerBorder);
 
                 console.log('Custom style applied');
             } catch (error) {
@@ -4724,7 +4856,9 @@
                 park: document.getElementById('color-park').value,
                 background: document.getElementById('color-background').value,
                 text: document.getElementById('color-text').value,
-                textSize: document.getElementById('text-size-slider').value
+                textSize: document.getElementById('text-size-slider').value,
+                markerFill: document.getElementById('color-marker').value,
+                markerBorder: document.getElementById('color-marker-border').value
             };
 
             localStorage.setItem('custom_style_colors', JSON.stringify(customColors));
@@ -4744,6 +4878,8 @@
             document.getElementById('color-text').value = '#333333';
             document.getElementById('text-size-slider').value = '12';
             document.getElementById('text-size-value').textContent = '12px';
+            document.getElementById('color-marker').value = '#4285F4';
+            document.getElementById('color-marker-border').value = '#FFFFFF';
 
             // Reload base style
             const currentStyle = localStorage.getItem('map_style') || 'voyager';
@@ -4752,6 +4888,9 @@
             map.once('styledata', () => {
                 loadRadar();
             });
+
+            // Reset marker colors
+            applyMarkerColors('#4285F4', '#FFFFFF');
         }
 
         // Load saved custom colors on init
@@ -4772,6 +4911,16 @@
                 const textSize = colors.textSize || '12';
                 document.getElementById('text-size-slider').value = textSize;
                 document.getElementById('text-size-value').textContent = textSize + 'px';
+
+                // Load marker colors
+                if (colors.markerFill) {
+                    markerFillColor = colors.markerFill;
+                    document.getElementById('color-marker').value = colors.markerFill;
+                }
+                if (colors.markerBorder) {
+                    markerBorderColor = colors.markerBorder;
+                    document.getElementById('color-marker-border').value = colors.markerBorder;
+                }
             }
         }
 

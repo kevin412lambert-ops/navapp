@@ -2090,6 +2090,7 @@
                         const zoomDiff = currentZoom - referenceZoomLevel;
                         // Scale with zoom: zooming in = bigger, zooming out = smaller
                         scaleFactor = Math.pow(2, zoomDiff);
+                        console.log(`Car scale: refZoom=${referenceZoomLevel}, currentZoom=${currentZoom}, diff=${zoomDiff}, scale=${scaleFactor.toFixed(2)}`);
                     }
 
                     // Apply both rotation and scale

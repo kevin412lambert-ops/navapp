@@ -619,10 +619,11 @@
             display: block;
         }
 
-        /* GPS Marker - smooth rotation transition */
+        /* GPS Marker - smooth rotation and scale transitions */
         /* Apply transition to SVG, not marker container (MapLibre uses container for positioning) */
         .user-marker svg {
-            transition: transform 0.3s ease;
+            transition: transform 0.2s ease-out;
+            transform-origin: center center;
         }
     </style>
 </head>
@@ -2090,7 +2091,6 @@
                         const zoomDiff = currentZoom - referenceZoomLevel;
                         // Scale with zoom: zooming in = bigger, zooming out = smaller
                         scaleFactor = Math.pow(2, zoomDiff);
-                        console.log(`Car scale: refZoom=${referenceZoomLevel}, currentZoom=${currentZoom}, diff=${zoomDiff}, scale=${scaleFactor.toFixed(2)}`);
                     }
 
                     // Apply both rotation and scale

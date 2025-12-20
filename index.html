@@ -728,9 +728,14 @@
 
                 <!-- Upcoming Exits -->
                 <div class="exits-section" style="margin-top: 15px;">
-                    <div class="exits-header">Nearby Exits (0.5 mi ahead)</div>
-                    <div id="exits-list">
-                        <div class="no-data">No exits nearby</div>
+                    <div class="exits-header" style="cursor: pointer; user-select: none;" onclick="toggleExits()">
+                        Nearby Exits (0.5 mi ahead)
+                        <span id="exits-toggle" style="float: right;">▲</span>
+                    </div>
+                    <div id="exits-content" style="display: block;">
+                        <div id="exits-list">
+                            <div class="no-data">No exits nearby</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1161,6 +1166,17 @@
             initPerspectiveControls();
             initTextSizeSlider();
             loadSavedColors();
+            restoreExitsState();
+        }
+
+        function restoreExitsState() {
+            const collapsed = localStorage.getItem('exits-collapsed');
+            if (collapsed === 'true') {
+                const content = document.getElementById('exits-content');
+                const toggle = document.getElementById('exits-toggle');
+                content.style.display = 'none';
+                toggle.textContent = '▼';
+            }
         }
 
         // ==================== REMOTE LOGGING FUNCTIONS ====================
@@ -5016,6 +5032,21 @@
             } else {
                 content.style.display = 'none';
                 toggle.textContent = '▼';
+            }
+        }
+
+        function toggleExits() {
+            const content = document.getElementById('exits-content');
+            const toggle = document.getElementById('exits-toggle');
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▲';
+                localStorage.setItem('exits-collapsed', 'false');
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▼';
+                localStorage.setItem('exits-collapsed', 'true');
             }
         }
 

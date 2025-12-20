@@ -1105,12 +1105,16 @@
         const SMOOTHING_FACTOR = 0.3; // Default smoothing factor (0=max smooth, 1=no smooth)
         let stationaryStartTime = null; // Track stationary duration
 
+        // Speed limit debugging (set to false to disable verbose logging)
+        const DEBUG_SPEED_LIMIT = true;
+
         // Speed limit caching
         let speedLimitCache = {
             value: null,        // Cached speed limit in mph
             road: null,         // Road name when cached (e.g., "I25")
             direction: null,    // Direction of travel (N, S, E, W, NE, etc.)
-            isCached: false     // Whether current display is from cache
+            isCached: false,    // Whether current display is from cache
+            timestamp: 0        // When cache was last updated
         };
 
         // Road geometry caching for map-matching and road-following
@@ -3106,6 +3110,11 @@
             if (!currentLocation) return;
 
             try {
+                // Log query location
+                if (DEBUG_SPEED_LIMIT) {
+                    console.log('Querying speed limit at:', currentLocation.lat.toFixed(6), currentLocation.lng.toFixed(6));
+                }
+
                 // Query Overpass for nearby ways with maxspeed within 100m (wider search for highways)
                 const query = `
                     [out:json][timeout:5];
@@ -3118,18 +3127,68 @@
                     body: query
                 });
 
-                if (!response.ok) return;
+                if (!response.ok) {
+                    console.warn('Overpass API HTTP error:', response.status);
+                    return;
+                }
 
                 const data = await response.json();
 
-                if (data.elements && data.elements.length > 0) {
-                    // Get the first way with maxspeed
-                    const way = data.elements[0];
-                    let speedLimit = way.tags.maxspeed;
+                // Log raw API response
+                if (DEBUG_SPEED_LIMIT) {
+                    console.log('Overpass API Response:', JSON.stringify(data, null, 2));
+                }
 
-                    if (speedLimit) {
+                // Check for Overpass API errors
+                if (data.error) {
+                    console.error('Overpass API error:', data.error);
+                    throw new Error(`Overpass API: ${data.error}`);
+                }
+
+                if (!data.elements) {
+                    console.warn('No elements in Overpass response');
+                    throw new Error('Invalid API response format');
+                }
+
+                if (data.elements.length === 0) {
+                    if (DEBUG_SPEED_LIMIT) {
+                        console.log('No ways with speed limits found in 100m radius');
+                    }
+                }
+
+                // Log elements found
+                if (DEBUG_SPEED_LIMIT && data.elements.length > 0) {
+                    console.log(`Found ${data.elements.length} way(s) with speed limit data`);
+                    data.elements.forEach((way, idx) => {
+                        console.log(`Way ${idx}:`, {
+                            type: way.type,
+                            id: way.id,
+                            tags: way.tags
+                        });
+                    });
+                }
+
+                if (data.elements && data.elements.length > 0) {
+                    // Try each way until we find one with valid maxspeed
+                    for (const way of data.elements) {
+                        // Validate response structure before accessing
+                        if (!way || !way.tags || !way.tags.maxspeed) {
+                            console.warn('Invalid way structure or missing maxspeed tag:', way);
+                            continue; // Skip this way and try next
+                        }
+
+                        let speedLimit = way.tags.maxspeed;
+
                         // Parse speed limit value
                         speedLimit = parseSpeedLimit(speedLimit);
+
+                        // Validate parsed result
+                        if (speedLimit === null || isNaN(speedLimit)) {
+                            console.warn('Failed to parse speed limit, skipping this way');
+                            continue; // Try next way
+                        }
+
+                        console.log('Speed limit found:', speedLimit, 'mph');
 
                         // Update cache with new data - use highway number if available
                         if (roadInfo) {
@@ -3142,8 +3201,18 @@
                                 value: speedLimit,
                                 road: roadKey,
                                 direction: direction,
-                                isCached: false  // Fresh data, not cached
+                                isCached: false,  // Fresh data, not cached
+                                timestamp: Date.now()  // Cache timestamp
                             };
+
+                            if (DEBUG_SPEED_LIMIT) {
+                                console.log('Speed limit cache updated:', {
+                                    value: speedLimit,
+                                    road: roadKey,
+                                    direction: direction,
+                                    isCached: false
+                                });
+                            }
                         }
 
                         // Update roadInfo with speed limit
@@ -3153,13 +3222,25 @@
                             roadInfo = { speedLimit: speedLimit };
                         }
 
-                        console.log('Speed limit found:', speedLimit);
-                        return;
+                        return; // Found valid speed limit, exit
                     }
                 }
 
                 // No speed limit found - check if we should use cached value
                 if (speedLimitCache.value && roadInfo) {
+                    // Check cache age
+                    const cacheAge = Date.now() - speedLimitCache.timestamp;
+                    const MAX_CACHE_AGE = 5 * 60 * 1000; // 5 minutes
+
+                    if (cacheAge > MAX_CACHE_AGE) {
+                        if (DEBUG_SPEED_LIMIT) {
+                            console.log('Cached speed limit expired (age:', Math.round(cacheAge/1000), 's), clearing cache');
+                        }
+                        speedLimitCache = { value: null, road: null, direction: null, isCached: false, timestamp: 0 };
+                        if (roadInfo) roadInfo.speedLimit = null;
+                        return;
+                    }
+
                     // Use highway number if available, otherwise use road
                     const currentRoadKey = roadInfo.highwayNumber ?
                         formatHighwayName(roadInfo.highwayNumber) :
@@ -3171,11 +3252,15 @@
                             // Same road - keep showing speed limit regardless of direction
                             roadInfo.speedLimit = speedLimitCache.value;
                             speedLimitCache.isCached = true;  // Mark as cached
-                            console.log('Using cached speed limit:', speedLimitCache.value, 'for', currentRoadKey);
+                            if (DEBUG_SPEED_LIMIT) {
+                                console.log(`Using cached speed limit (${Math.round(cacheAge/1000)}s old):`, speedLimitCache.value, 'for', currentRoadKey);
+                            }
                             return;
                         } else {
                             // Different road - clear the speed limit (changed roads via turn/ramp)
-                            console.log('Road changed from', speedLimitCache.road, 'to', currentRoadKey, '- clearing speed limit');
+                            if (DEBUG_SPEED_LIMIT) {
+                                console.log('Road changed from', speedLimitCache.road, 'to', currentRoadKey, '- clearing speed limit');
+                            }
                             roadInfo.speedLimit = null;
                             speedLimitCache.isCached = false;
                         }
@@ -3195,8 +3280,19 @@
             } catch (error) {
                 console.error('Speed limit query failed:', error);
 
-                // On error, try to use cached value if available and on same road
+                // On error, try to use cached value if available, not expired, and on same road
                 if (speedLimitCache.value && roadInfo) {
+                    // Check cache age
+                    const cacheAge = Date.now() - speedLimitCache.timestamp;
+                    const MAX_CACHE_AGE = 5 * 60 * 1000; // 5 minutes
+
+                    if (cacheAge > MAX_CACHE_AGE) {
+                        if (DEBUG_SPEED_LIMIT) {
+                            console.log('Cached speed limit expired, not using as fallback');
+                        }
+                        return;
+                    }
+
                     const currentRoadKey = roadInfo.highwayNumber ?
                         formatHighwayName(roadInfo.highwayNumber) :
                         (roadInfo.road ? formatHighwayName(roadInfo.road) : null);
@@ -3204,7 +3300,9 @@
                     if (currentRoadKey && speedLimitCache.road === currentRoadKey) {
                         roadInfo.speedLimit = speedLimitCache.value;
                         speedLimitCache.isCached = true;
-                        console.log('Using cached speed limit (error fallback):', speedLimitCache.value);
+                        if (DEBUG_SPEED_LIMIT) {
+                            console.log(`Using cached speed limit (error fallback, ${Math.round(cacheAge/1000)}s old):`, speedLimitCache.value);
+                        }
                     }
                 }
             }
@@ -3212,28 +3310,74 @@
 
         function parseSpeedLimit(maxspeedValue) {
             // Parse maxspeed tag value into mph
-            // Examples: "55 mph", "100" (km/h), "50 knots"
+            // Examples: "55 mph", "100" (km/h), "50 knots", "mph 55"
 
-            const value = maxspeedValue.trim();
+            if (!maxspeedValue) {
+                if (DEBUG_SPEED_LIMIT) console.log('parseSpeedLimit: null/undefined value');
+                return null;
+            }
 
-            // Check for mph
+            const original = maxspeedValue;
+            const value = maxspeedValue.toLowerCase().trim();
+
+            if (DEBUG_SPEED_LIMIT) console.log(`parseSpeedLimit: parsing "${original}"`);
+
+            // Handle mph
             if (value.includes('mph')) {
-                return parseInt(value);
+                // Extract numeric value (handle both "55 mph" and "mph 55")
+                const match = value.match(/(\d+)/);
+                if (!match) {
+                    console.warn(`parseSpeedLimit: no numeric value found in "${original}"`);
+                    return null;
+                }
+                const parsed = parseInt(match[1]);
+                if (isNaN(parsed)) {
+                    console.warn(`parseSpeedLimit: parseInt returned NaN for "${original}"`);
+                    return null;
+                }
+                if (DEBUG_SPEED_LIMIT) console.log(`parseSpeedLimit: ${parsed} mph from "${original}"`);
+                return parsed;
             }
 
-            // Check for knots
-            if (value.includes('knots')) {
-                const knots = parseInt(value);
-                return Math.round(knots * 1.15078); // Convert knots to mph
+            // Handle knots
+            if (value.includes('knots') || value.includes('kn')) {
+                const match = value.match(/(\d+)/);
+                if (!match) {
+                    console.warn(`parseSpeedLimit: no numeric value in knots "${original}"`);
+                    return null;
+                }
+                const knots = parseInt(match[1]);
+                if (isNaN(knots)) {
+                    console.warn(`parseSpeedLimit: parseInt returned NaN for knots "${original}"`);
+                    return null;
+                }
+                const mph = Math.round(knots * 1.15078);
+                if (DEBUG_SPEED_LIMIT) console.log(`parseSpeedLimit: ${mph} mph (converted from ${knots} knots)`);
+                return mph;
             }
 
-            // Default is km/h - convert to mph
-            const kmh = parseInt(value);
-            if (!isNaN(kmh)) {
-                return Math.round(kmh * 0.621371);
+            // Handle special cases
+            if (value === 'none' || value === 'signals' || value === 'variable') {
+                if (DEBUG_SPEED_LIMIT) console.log(`parseSpeedLimit: ignoring special value "${original}"`);
+                return null;
             }
 
-            return null;
+            // Assume km/h, convert to mph
+            const match = value.match(/(\d+)/);
+            if (!match) {
+                console.warn(`parseSpeedLimit: no numeric value found in "${original}"`);
+                return null;
+            }
+
+            const kmh = parseInt(match[1]);
+            if (isNaN(kmh)) {
+                console.warn(`parseSpeedLimit: parseInt returned NaN for km/h "${original}"`);
+                return null;
+            }
+
+            const mph = Math.round(kmh * 0.621371);
+            if (DEBUG_SPEED_LIMIT) console.log(`parseSpeedLimit: ${mph} mph (converted from ${kmh} km/h in "${original}")`);
+            return mph;
         }
 
         // ==================== NEARBY EXITS QUERY ====================

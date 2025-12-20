@@ -2620,21 +2620,22 @@
                 // Calculate distance moved (in meters)
                 const distanceMovedMeters = calculateDistance(currentLat, currentLng, newLat, newLng);
 
-                // Dynamic jitter threshold based on movement state
+                // Only filter jitter when stationary (not when moving)
                 const isStationary = currentLocation.speed < 0.5; // m/s
-                const JITTER_THRESHOLD_STATIONARY = 8; // meters when stopped
-                const JITTER_THRESHOLD_MOVING = 0.1; // meters when moving (very low to allow smooth updates)
+                const JITTER_THRESHOLD_STATIONARY = 5; // meters when stopped
 
-                const jitterThreshold = isStationary ? JITTER_THRESHOLD_STATIONARY : JITTER_THRESHOLD_MOVING;
-
-                if (distanceMovedMeters < jitterThreshold) {
-                    // Tiny movement - ignore position update to prevent jitter
-                    // Still update rotation even if not moving position
+                if (isStationary && distanceMovedMeters < JITTER_THRESHOLD_STATIONARY) {
+                    // Tiny movement while stopped - ignore to prevent jitter
                     if (currentMarkerType === 'car' && currentLocation && currentLocation.heading !== null) {
                         updateMarkerRotation(currentLocation.heading);
                     }
-                    console.log(`Ignoring GPS update: distance ${distanceMovedMeters.toFixed(2)}m < threshold ${jitterThreshold}m`);
+                    console.log(`Ignoring GPS update (stationary): distance ${distanceMovedMeters.toFixed(2)}m`);
                     return;
+                }
+
+                // When moving, always update for real-time tracking
+                if (!isStationary) {
+                    console.log(`Updating marker (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph): moved ${distanceMovedMeters.toFixed(2)}m`);
                 }
 
                 if (matchedPosition) {
@@ -2662,21 +2663,37 @@
                         return;
                     }
 
-                    // Always use smooth animation, graduated by deviation size
-                    if (distanceFromMarkerToMatched > 50) {
-                        // Large deviation (>50m) - smooth transition with longer duration
-                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 1500);
-                        return;
-                    } else if (distanceFromMarkerToMatched > 20) {
-                        // Medium deviation (>20m) - moderate smooth transition
-                        smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 800);
-                        return;
-                    }
-                    // Small deviations (<20m) - let animation naturally catch up
+                    // When moving at speed, use instant updates to prevent lag
+                    const isMovingFast = currentLocation.speed > 5; // 5 m/s = ~11 mph
 
-                    // Ensure animation is running if moving
-                    if (currentLocation.speed > 0.5 && !markerAnimation) {
-                        animateMarkerAlongRoad();
+                    if (isMovingFast) {
+                        // Moving fast - use instant update or very short transition to prevent lag
+                        if (distanceFromMarkerToMatched > 10) {
+                            // Jump directly to position when moving fast - no animation lag
+                            marker.setLngLat([matchedPosition.lng, matchedPosition.lat]);
+                            console.log(`Instant update (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph): ${distanceFromMarkerToMatched.toFixed(1)}m deviation`);
+                        }
+                        // Ensure animation is running for continuous movement
+                        if (!markerAnimation) {
+                            animateMarkerAlongRoad();
+                        }
+                    } else {
+                        // Moving slowly or stationary - use smooth animations
+                        if (distanceFromMarkerToMatched > 50) {
+                            // Large deviation (>50m) - smooth transition with longer duration
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 1500);
+                            return;
+                        } else if (distanceFromMarkerToMatched > 20) {
+                            // Medium deviation (>20m) - moderate smooth transition
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 800);
+                            return;
+                        }
+                        // Small deviations (<20m) - let animation naturally catch up
+
+                        // Ensure animation is running if moving
+                        if (currentLocation.speed > 0.5 && !markerAnimation) {
+                            animateMarkerAlongRoad();
+                        }
                     }
                 } else {
                     // No road geometry - fallback to straight-line
@@ -2685,7 +2702,14 @@
                     currentVelocity.lat = (newLat - currentLat) / avgInterval;
                     currentVelocity.lng = (newLng - currentLng) / avgInterval;
 
-                    smoothTransitionTo(newLat, newLng, 500);
+                    // When moving fast, use instant update to prevent lag
+                    const isMovingFast = currentLocation.speed > 5; // 5 m/s = ~11 mph
+                    if (isMovingFast) {
+                        marker.setLngLat([newLng, newLat]);
+                        console.log(`Instant update - no road geometry (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph)`);
+                    } else {
+                        smoothTransitionTo(newLat, newLng, 500);
+                    }
                 }
             } else {
                 // First time: create marker

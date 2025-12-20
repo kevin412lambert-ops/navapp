@@ -1240,16 +1240,16 @@
 
         async function sendLogsImmediately(logs) {
             try {
+                // Use GET request to avoid CORS preflight
+                const url = new URL(REMOTE_LOGGING_CONFIG.webhookUrl);
+                url.searchParams.set('secret', REMOTE_LOGGING_CONFIG.secret);
+                url.searchParams.set('data', encodeURIComponent(JSON.stringify(logs)));
+
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
 
-                const response = await fetch(REMOTE_LOGGING_CONFIG.webhookUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        secret: REMOTE_LOGGING_CONFIG.secret,
-                        logs: logs
-                    }),
+                const response = await fetch(url.toString(), {
+                    method: 'GET',
                     signal: controller.signal
                 });
 
@@ -1270,16 +1270,16 @@
             loggingQueue = [];
 
             try {
+                // Use GET request to avoid CORS preflight
+                const url = new URL(REMOTE_LOGGING_CONFIG.webhookUrl);
+                url.searchParams.set('secret', REMOTE_LOGGING_CONFIG.secret);
+                url.searchParams.set('data', encodeURIComponent(JSON.stringify(logsToSend)));
+
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
 
-                const response = await fetch(REMOTE_LOGGING_CONFIG.webhookUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        secret: REMOTE_LOGGING_CONFIG.secret,
-                        logs: logsToSend
-                    }),
+                const response = await fetch(url.toString(), {
+                    method: 'GET',
                     signal: controller.signal
                 });
 

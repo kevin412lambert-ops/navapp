@@ -1238,29 +1238,64 @@
             }
         }
 
-        async function sendLogsImmediately(logs) {
-            try {
-                // Use GET request to avoid CORS preflight
-                const url = new URL(REMOTE_LOGGING_CONFIG.webhookUrl);
-                url.searchParams.set('secret', REMOTE_LOGGING_CONFIG.secret);
-                url.searchParams.set('data', encodeURIComponent(JSON.stringify(logs)));
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
-
-                const response = await fetch(url.toString(), {
-                    method: 'GET',
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    savePendingLogs(logs);
-                }
-            } catch (error) {
-                savePendingLogs(logs);
+        async function sendLogsInChunks(logs, chunkSize) {
+            // Split logs into smaller chunks to avoid URL length limits
+            const chunks = [];
+            for (let i = 0; i < logs.length; i += chunkSize) {
+                chunks.push(logs.slice(i, i + chunkSize));
             }
+
+            let allSuccessful = true;
+
+            for (const chunk of chunks) {
+                try {
+                    const url = new URL(REMOTE_LOGGING_CONFIG.webhookUrl);
+                    url.searchParams.set('secret', REMOTE_LOGGING_CONFIG.secret);
+                    url.searchParams.set('data', encodeURIComponent(JSON.stringify(chunk)));
+
+                    // Check URL length (max 2000 chars for safety)
+                    if (url.toString().length > 2000) {
+                        // If still too long, split into even smaller chunks
+                        if (chunk.length > 1) {
+                            await sendLogsInChunks(chunk, Math.floor(chunk.length / 2));
+                            continue;
+                        } else {
+                            // Single log is too long - truncate message
+                            chunk[0].message = chunk[0].message.substring(0, 100);
+                        }
+                    }
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
+
+                    const response = await fetch(url.toString(), {
+                        method: 'GET',
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        savePendingLogs(chunk);
+                        allSuccessful = false;
+                    }
+
+                    // Small delay between chunks to avoid rate limiting
+                    if (chunks.length > 1) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                } catch (error) {
+                    savePendingLogs(chunk);
+                    allSuccessful = false;
+                }
+            }
+
+            return allSuccessful;
+        }
+
+        async function sendLogsImmediately(logs) {
+            // Send in small batches to avoid URL length limits
+            await sendLogsInChunks(logs, 3);
         }
 
         async function sendBatchedLogs() {
@@ -1269,30 +1304,12 @@
             const logsToSend = [...pendingLogsInLocalStorage, ...loggingQueue];
             loggingQueue = [];
 
-            try {
-                // Use GET request to avoid CORS preflight
-                const url = new URL(REMOTE_LOGGING_CONFIG.webhookUrl);
-                url.searchParams.set('secret', REMOTE_LOGGING_CONFIG.secret);
-                url.searchParams.set('data', encodeURIComponent(JSON.stringify(logsToSend)));
+            // Send in small batches to avoid URL length limits
+            const success = await sendLogsInChunks(logsToSend, 5);
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
-
-                const response = await fetch(url.toString(), {
-                    method: 'GET',
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (response.ok) {
-                    pendingLogsInLocalStorage = [];
-                    localStorage.removeItem('pending_logs');
-                } else {
-                    savePendingLogs(logsToSend);
-                }
-            } catch (error) {
-                savePendingLogs(logsToSend);
+            if (success) {
+                pendingLogsInLocalStorage = [];
+                localStorage.removeItem('pending_logs');
             }
         }
 

@@ -1129,8 +1129,27 @@
         let lastWeatherQuery = 0;
         let lastSpeedLimitQuery = 0;
 
+        // ==================== REMOTE LOGGING CONFIG ====================
+        const REMOTE_LOGGING_CONFIG = {
+            enabled: true,
+            webhookUrl: 'https://script.google.com/macros/s/AKfycbwRwx9yvyJOvuwTWuOf7f7efDjJ3ONWDJTTpDbZ400gsic25nEEf_SYDQJfP6NHNP-O/exec',
+            secret: 'ABCD1234',
+            debugMode: false,  // Set true to log console.log() calls
+            batchInterval: 30000,  // Batch every 30 seconds
+            batchSize: 10,  // Or when 10 logs accumulated
+            timeout: 5000,
+            maxQueueSize: 100,
+            immediateLogLevels: ['error', 'warn']  // Send these immediately
+        };
+
+        let loggingQueue = [];
+        let sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        let batchTimer = null;
+        let pendingLogsInLocalStorage = [];
+
         // ==================== INIT ====================
         function initApp() {
+            initRemoteLogging();  // Initialize remote logging FIRST
             initMap();
             initGPS();
             loadRadar();
@@ -1142,6 +1161,168 @@
             initPerspectiveControls();
             initTextSizeSlider();
             loadSavedColors();
+        }
+
+        // ==================== REMOTE LOGGING FUNCTIONS ====================
+
+        function initRemoteLogging() {
+            if (!REMOTE_LOGGING_CONFIG.enabled) return;
+
+            loadPendingLogs();
+            startBatchTimer();
+
+            // Override console methods
+            const originalLog = console.log;
+            const originalError = console.error;
+            const originalWarn = console.warn;
+
+            console.log = function(...args) {
+                originalLog.apply(console, args);
+                if (REMOTE_LOGGING_CONFIG.debugMode) {
+                    captureLog('log', args);
+                }
+            };
+
+            console.error = function(...args) {
+                originalError.apply(console, args);
+                captureLog('error', args);
+            };
+
+            console.warn = function(...args) {
+                originalWarn.apply(console, args);
+                captureLog('warn', args);
+            };
+
+            // Capture unhandled errors
+            window.addEventListener('error', (event) => {
+                captureLog('error', ['Unhandled error:', event.message, 'at', event.filename, event.lineno]);
+            });
+
+            window.addEventListener('unhandledrejection', (event) => {
+                captureLog('error', ['Unhandled promise rejection:', event.reason]);
+            });
+        }
+
+        function captureLog(level, args) {
+            const message = args.map(arg => {
+                if (typeof arg === 'object') {
+                    try { return JSON.stringify(arg); }
+                    catch (e) { return String(arg); }
+                }
+                return String(arg);
+            }).join(' ');
+
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                level: level.toUpperCase(),
+                message: message.substring(0, 500),
+                details: '',
+                location: currentLocation ? `${currentLocation.lat.toFixed(6)},${currentLocation.lng.toFixed(6)}` : '',
+                road: roadInfo?.road || '',
+                city: roadInfo?.city || '',
+                speed: currentLocation?.speed ? (currentLocation.speed * 2.237).toFixed(0) : '',
+                sessionId: sessionId,
+                userAgent: navigator.userAgent
+            };
+
+            loggingQueue.push(logEntry);
+
+            if (loggingQueue.length > REMOTE_LOGGING_CONFIG.maxQueueSize) {
+                loggingQueue.shift();
+            }
+
+            if (REMOTE_LOGGING_CONFIG.immediateLogLevels.includes(level)) {
+                sendLogsImmediately([logEntry]);
+            } else if (loggingQueue.length >= REMOTE_LOGGING_CONFIG.batchSize) {
+                sendBatchedLogs();
+            }
+        }
+
+        async function sendLogsImmediately(logs) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
+
+                const response = await fetch(REMOTE_LOGGING_CONFIG.webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        secret: REMOTE_LOGGING_CONFIG.secret,
+                        logs: logs
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    savePendingLogs(logs);
+                }
+            } catch (error) {
+                savePendingLogs(logs);
+            }
+        }
+
+        async function sendBatchedLogs() {
+            if (loggingQueue.length === 0) return;
+
+            const logsToSend = [...pendingLogsInLocalStorage, ...loggingQueue];
+            loggingQueue = [];
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), REMOTE_LOGGING_CONFIG.timeout);
+
+                const response = await fetch(REMOTE_LOGGING_CONFIG.webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        secret: REMOTE_LOGGING_CONFIG.secret,
+                        logs: logsToSend
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    pendingLogsInLocalStorage = [];
+                    localStorage.removeItem('pending_logs');
+                } else {
+                    savePendingLogs(logsToSend);
+                }
+            } catch (error) {
+                savePendingLogs(logsToSend);
+            }
+        }
+
+        function startBatchTimer() {
+            batchTimer = setInterval(() => {
+                sendBatchedLogs();
+            }, REMOTE_LOGGING_CONFIG.batchInterval);
+        }
+
+        function savePendingLogs(logs) {
+            try {
+                pendingLogsInLocalStorage.push(...logs);
+                if (pendingLogsInLocalStorage.length > 100) {
+                    pendingLogsInLocalStorage = pendingLogsInLocalStorage.slice(-100);
+                }
+                localStorage.setItem('pending_logs', JSON.stringify(pendingLogsInLocalStorage));
+            } catch (e) {
+                // localStorage full - silently fail
+            }
+        }
+
+        function loadPendingLogs() {
+            try {
+                const stored = localStorage.getItem('pending_logs');
+                if (stored) {
+                    pendingLogsInLocalStorage = JSON.parse(stored);
+                }
+            } catch (e) {
+                pendingLogsInLocalStorage = [];
+            }
         }
 
         function initRadarOpacitySlider() {

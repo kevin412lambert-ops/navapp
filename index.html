@@ -2372,13 +2372,17 @@
 
                 // Dynamic jitter threshold based on movement state
                 const isStationary = currentLocation.speed < 0.5; // m/s
-                const JITTER_THRESHOLD_STATIONARY = 15; // meters when stopped
-                const JITTER_THRESHOLD_MOVING = 5; // meters when moving
+                const JITTER_THRESHOLD_STATIONARY = 8; // meters when stopped (reduced)
+                const JITTER_THRESHOLD_MOVING = 3; // meters when moving (reduced)
 
                 const jitterThreshold = isStationary ? JITTER_THRESHOLD_STATIONARY : JITTER_THRESHOLD_MOVING;
 
                 if (distanceMovedMeters < jitterThreshold) {
-                    // Tiny movement - ignore to prevent jitter
+                    // Tiny movement - ignore position update to prevent jitter
+                    // Still update rotation even if not moving position
+                    if (currentMarkerType === 'car' && currentLocation && currentLocation.heading !== null) {
+                        updateMarkerRotation(currentLocation.heading);
+                    }
                     return;
                 }
 

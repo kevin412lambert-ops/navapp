@@ -193,6 +193,21 @@
             color: #999;
             display: flex;
             gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .destination-secondary {
+            color: #888;
+            font-size: 11px;
+        }
+
+        .destination-ref {
+            color: #f97316;
+            font-weight: 600;
+            background: rgba(249, 115, 22, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
         }
 
         .no-data {
@@ -1114,7 +1129,9 @@
             road: null,         // Road name when cached (e.g., "I25")
             direction: null,    // Direction of travel (N, S, E, W, NE, etc.)
             isCached: false,    // Whether current display is from cache
-            timestamp: 0        // When cache was last updated
+            timestamp: 0,       // When cache was last updated
+            name: null,         // Primary road name for matching
+            name_1: null        // Alternative road name for matching
         };
 
         // Road geometry caching for map-matching and road-following
@@ -2787,6 +2804,11 @@
 
                 const data = await response.json();
 
+                // Log full response to determine name field locations
+                if (DEBUG_SPEED_LIMIT) {
+                    console.log('Nominatim Response:', JSON.stringify(data, null, 2));
+                }
+
                 // Extract city from detailed query
                 let city = data.address?.city || data.address?.town || data.address?.village || 'Unknown';
 
@@ -2848,6 +2870,11 @@
                     }
                 }
 
+                // Extract name fields for cache matching (check multiple possible locations)
+                const name = data.name || data.address?.name || data.namedetails?.name || null;
+                const name_1 = data.name_1 || data.address?.name_1 || null;
+                const officialName = data.official_name || data.address?.official_name || null;
+
                 roadInfo = {
                     road: highwayNumber || road || 'Unknown',  // The highway number
                     roadName: highwayName || null,  // The highway name (separate)
@@ -2855,7 +2882,11 @@
                     houseNumber: data.address?.house_number || null,
                     city: city,
                     state: data.address?.state || '',
-                    type: determineRoadType(data)
+                    type: determineRoadType(data),
+                    // NEW FIELDS for cache matching:
+                    name: name,                    // Primary road name
+                    name_1: name_1,                // Alternative road name
+                    officialName: officialName     // Official designation
                 };
 
                 console.log('Road info:', roadInfo);
@@ -3199,16 +3230,20 @@
 
                             speedLimitCache = {
                                 value: speedLimit,
-                                road: roadKey,
+                                road: roadKey,                      // Keep for backwards compatibility
                                 direction: direction,
-                                isCached: false,  // Fresh data, not cached
-                                timestamp: Date.now()  // Cache timestamp
+                                isCached: false,                    // Fresh data, not cached
+                                timestamp: Date.now(),              // Cache timestamp
+                                name: roadInfo.name || null,        // Primary road name for matching
+                                name_1: roadInfo.name_1 || null     // Alternative road name for matching
                             };
 
                             if (DEBUG_SPEED_LIMIT) {
-                                console.log('Speed limit cache updated:', {
+                                console.log('Speed limit cache updated with names:', {
                                     value: speedLimit,
                                     road: roadKey,
+                                    name: roadInfo.name,
+                                    name_1: roadInfo.name_1,
                                     direction: direction,
                                     isCached: false
                                 });
@@ -3228,46 +3263,46 @@
 
                 // No speed limit found - check if we should use cached value
                 if (speedLimitCache.value && roadInfo) {
-                    // Check cache age
-                    const cacheAge = Date.now() - speedLimitCache.timestamp;
-                    const MAX_CACHE_AGE = 5 * 60 * 1000; // 5 minutes
+                    // Name-based cache validation (NEW APPROACH)
+                    const currentName = roadInfo.name || null;
+                    const currentName_1 = roadInfo.name_1 || null;
+                    const cachedName = speedLimitCache.name || null;
+                    const cachedName_1 = speedLimitCache.name_1 || null;
 
-                    if (cacheAge > MAX_CACHE_AGE) {
+                    // Check if EITHER name field matches
+                    const nameMatches =
+                        (cachedName && currentName && cachedName === currentName) ||
+                        (cachedName_1 && currentName_1 && cachedName_1 === currentName_1);
+
+                    if (nameMatches) {
+                        // Name(s) match - keep cached speed limit indefinitely
+                        roadInfo.speedLimit = speedLimitCache.value;
+                        speedLimitCache.isCached = true;
+
                         if (DEBUG_SPEED_LIMIT) {
-                            console.log('Cached speed limit expired (age:', Math.round(cacheAge/1000), 's), clearing cache');
+                            const matchedField = (cachedName === currentName) ? 'name' : 'name_1';
+                            const matchedValue = (cachedName === currentName) ? cachedName : cachedName_1;
+                            console.log(`Keeping cached speed limit: ${speedLimitCache.value} mph (matched on ${matchedField}: "${matchedValue}")`);
                         }
-                        speedLimitCache = { value: null, road: null, direction: null, isCached: false, timestamp: 0 };
-                        if (roadInfo) roadInfo.speedLimit = null;
                         return;
-                    }
-
-                    // Use highway number if available, otherwise use road
-                    const currentRoadKey = roadInfo.highwayNumber ?
-                        formatHighwayName(roadInfo.highwayNumber) :
-                        (roadInfo.road ? formatHighwayName(roadInfo.road) : null);
-
-                    if (currentRoadKey) {
-                        // KEEP cached value if we're on the same road (ignore direction changes)
-                        if (speedLimitCache.road === currentRoadKey) {
-                            // Same road - keep showing speed limit regardless of direction
-                            roadInfo.speedLimit = speedLimitCache.value;
-                            speedLimitCache.isCached = true;  // Mark as cached
-                            if (DEBUG_SPEED_LIMIT) {
-                                console.log(`Using cached speed limit (${Math.round(cacheAge/1000)}s old):`, speedLimitCache.value, 'for', currentRoadKey);
-                            }
-                            return;
-                        } else {
-                            // Different road - clear the speed limit (changed roads via turn/ramp)
-                            if (DEBUG_SPEED_LIMIT) {
-                                console.log('Road changed from', speedLimitCache.road, 'to', currentRoadKey, '- clearing speed limit');
-                            }
-                            roadInfo.speedLimit = null;
-                            speedLimitCache.isCached = false;
-                        }
                     } else {
-                        // No current road info - clear speed limit display
+                        // Both name fields changed - clear cache
+                        if (DEBUG_SPEED_LIMIT) {
+                            console.log('Road name changed, clearing speed limit cache:', {
+                                was: { name: cachedName, name_1: cachedName_1 },
+                                now: { name: currentName, name_1: currentName_1 }
+                            });
+                        }
                         roadInfo.speedLimit = null;
-                        speedLimitCache.isCached = false;
+                        speedLimitCache = {
+                            value: null,
+                            road: null,
+                            direction: null,
+                            isCached: false,
+                            timestamp: 0,
+                            name: null,
+                            name_1: null
+                        };
                     }
                 } else {
                     // No cache available - clear speed limit display
@@ -3280,28 +3315,22 @@
             } catch (error) {
                 console.error('Speed limit query failed:', error);
 
-                // On error, try to use cached value if available, not expired, and on same road
+                // On error, try to use cached value if name matches
                 if (speedLimitCache.value && roadInfo) {
-                    // Check cache age
-                    const cacheAge = Date.now() - speedLimitCache.timestamp;
-                    const MAX_CACHE_AGE = 5 * 60 * 1000; // 5 minutes
+                    const currentName = roadInfo.name || null;
+                    const currentName_1 = roadInfo.name_1 || null;
+                    const cachedName = speedLimitCache.name || null;
+                    const cachedName_1 = speedLimitCache.name_1 || null;
 
-                    if (cacheAge > MAX_CACHE_AGE) {
-                        if (DEBUG_SPEED_LIMIT) {
-                            console.log('Cached speed limit expired, not using as fallback');
-                        }
-                        return;
-                    }
+                    const nameMatches =
+                        (cachedName && currentName && cachedName === currentName) ||
+                        (cachedName_1 && currentName_1 && cachedName_1 === currentName_1);
 
-                    const currentRoadKey = roadInfo.highwayNumber ?
-                        formatHighwayName(roadInfo.highwayNumber) :
-                        (roadInfo.road ? formatHighwayName(roadInfo.road) : null);
-
-                    if (currentRoadKey && speedLimitCache.road === currentRoadKey) {
+                    if (nameMatches) {
                         roadInfo.speedLimit = speedLimitCache.value;
                         speedLimitCache.isCached = true;
                         if (DEBUG_SPEED_LIMIT) {
-                            console.log(`Using cached speed limit (error fallback, ${Math.round(cacheAge/1000)}s old):`, speedLimitCache.value);
+                            console.log('Using cached speed limit (error fallback, name matched):', speedLimitCache.value);
                         }
                     }
                 }
@@ -3491,6 +3520,10 @@
                         }
                     }
 
+                    // Extract additional destination fields
+                    const destinationTo = element.tags['destination:to'] || null;
+                    const destinationRefTo = element.tags['destination:ref:to'] || null;
+
                     // Determine if this is an exit (off-ramp) or entrance (on-ramp)
                     // motorway_junction nodes are ALWAYS exits (leaving the motorway)
                     // Only mark as entrance if explicitly tagged as such
@@ -3504,6 +3537,8 @@
                         id: element.id,
                         name: exitName,
                         destination: destination,
+                        destinationTo: destinationTo,           // NEW
+                        destinationRefTo: destinationRefTo,     // NEW
                         ref: element.tags.ref || null,
                         lat: element.lat,
                         lng: element.lng,
@@ -5108,6 +5143,8 @@
                         <div class="exit-meta">
                             <span>📍 ${exit.distance.toFixed(2)} mi</span>
                             ${exit.destination ? `<span>→ ${exit.destination}</span>` : ''}
+                            ${exit.destinationTo ? `<span class="destination-secondary">→ ${exit.destinationTo}</span>` : ''}
+                            ${exit.destinationRefTo ? `<span class="destination-ref">${exit.destinationRefTo}</span>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -5122,6 +5159,8 @@
                         <div class="exit-meta">
                             <span>📍 ${entrance.distance.toFixed(2)} mi</span>
                             ${entrance.destination ? `<span>→ ${entrance.destination}</span>` : ''}
+                            ${entrance.destinationTo ? `<span class="destination-secondary">→ ${entrance.destinationTo}</span>` : ''}
+                            ${entrance.destinationRefTo ? `<span class="destination-ref">${entrance.destinationRefTo}</span>` : ''}
                         </div>
                     </div>
                 `).join('');

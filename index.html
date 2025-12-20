@@ -1910,26 +1910,34 @@
         function initGPS() {
             if (!('geolocation' in navigator)) {
                 updateStatus('GPS not supported', 'error');
+                console.error('Geolocation API not available');
                 return;
             }
 
+            console.log('Initializing GPS with high accuracy mode...');
+
             const options = {
                 enableHighAccuracy: true,
-                timeout: 15000,
+                timeout: 30000,  // Increased to 30 seconds
                 maximumAge: 0
             };
 
-            navigator.geolocation.watchPosition(
+            const watchId = navigator.geolocation.watchPosition(
                 handleLocationUpdate,
                 handleLocationError,
                 options
             );
+
+            console.log(`GPS watchPosition started with ID: ${watchId}`);
         }
 
         // ==================== LOCATION UPDATES ====================
         function handleLocationUpdate(position) {
             const coords = position.coords;
             const now = performance.now();
+
+            // Log GPS update for debugging
+            console.log(`GPS Update: lat=${coords.latitude.toFixed(6)}, lng=${coords.longitude.toFixed(6)}, accuracy=${coords.accuracy.toFixed(1)}m, speed=${coords.speed}m/s`);
 
             // Filter out low-accuracy GPS readings (but allow initial GPS lock)
             const GPS_ACCURACY_THRESHOLD = 50; // meters
@@ -1938,13 +1946,13 @@
             if (currentLocation) {
                 // GPS already initialized - apply strict filtering
                 if (coords.accuracy > GPS_ACCURACY_THRESHOLD) {
-                    console.log(`GPS accuracy too low (${coords.accuracy}m), ignoring update`);
+                    console.warn(`GPS accuracy too low (${coords.accuracy}m), ignoring update`);
                     return;
                 }
             } else {
                 // First GPS reading - be more lenient to allow initialization
                 if (coords.accuracy > GPS_INIT_ACCURACY_THRESHOLD) {
-                    console.log(`Initial GPS accuracy too low (${coords.accuracy}m), waiting for better signal`);
+                    console.warn(`Initial GPS accuracy too low (${coords.accuracy}m), waiting for better signal`);
                     return;
                 }
             }
@@ -2082,8 +2090,15 @@
         }
 
         function handleLocationError(error) {
-            console.error('GPS Error:', error);
-            updateStatus('GPS Error', 'error');
+            const errorMessages = {
+                1: 'Permission denied - Please allow location access',
+                2: 'Position unavailable - GPS signal lost',
+                3: 'Timeout - GPS took too long to respond'
+            };
+
+            const errorMsg = errorMessages[error.code] || 'Unknown GPS error';
+            console.error(`GPS Error (code ${error.code}): ${errorMsg}`, error.message);
+            updateStatus(`GPS Error: ${errorMsg}`, 'error');
         }
 
         function getAverageGPSInterval() {
@@ -2570,8 +2585,8 @@
 
                 // Dynamic jitter threshold based on movement state
                 const isStationary = currentLocation.speed < 0.5; // m/s
-                const JITTER_THRESHOLD_STATIONARY = 8; // meters when stopped (reduced)
-                const JITTER_THRESHOLD_MOVING = 3; // meters when moving (reduced)
+                const JITTER_THRESHOLD_STATIONARY = 8; // meters when stopped
+                const JITTER_THRESHOLD_MOVING = 0.1; // meters when moving (very low to allow smooth updates)
 
                 const jitterThreshold = isStationary ? JITTER_THRESHOLD_STATIONARY : JITTER_THRESHOLD_MOVING;
 
@@ -2581,6 +2596,7 @@
                     if (currentMarkerType === 'car' && currentLocation && currentLocation.heading !== null) {
                         updateMarkerRotation(currentLocation.heading);
                     }
+                    console.log(`Ignoring GPS update: distance ${distanceMovedMeters.toFixed(2)}m < threshold ${jitterThreshold}m`);
                     return;
                 }
 
@@ -2590,6 +2606,8 @@
                         currentLat, currentLng,
                         matchedPosition.lat, matchedPosition.lng
                     );
+
+                    console.log(`Updating marker: moved ${distanceMovedMeters.toFixed(2)}m, distance to road-matched: ${distanceFromMarkerToMatched.toFixed(2)}m`);
 
                     // Update road position cache FIRST (so animation uses new target)
                     roadGeometryCache.currentPosition = matchedPosition;
@@ -2625,6 +2643,7 @@
                     }
                 } else {
                     // No road geometry - fallback to straight-line
+                    console.log(`No road geometry available, using straight-line transition`);
                     const avgInterval = getAverageGPSInterval();
                     currentVelocity.lat = (newLat - currentLat) / avgInterval;
                     currentVelocity.lng = (newLng - currentLng) / avgInterval;
@@ -2633,6 +2652,7 @@
                 }
             } else {
                 // First time: create marker
+                console.log(`Creating initial marker at ${newLat.toFixed(6)}, ${newLng.toFixed(6)}`);
                 const initialLat = matchedPosition ? matchedPosition.lat : newLat;
                 const initialLng = matchedPosition ? matchedPosition.lng : newLng;
 

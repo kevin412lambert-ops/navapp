@@ -2147,17 +2147,26 @@
         // Smooth GPS position using Exponential Weighted Moving Average (EWMA)
         function smoothGPSPosition(newLat, newLng, accuracy, isUnreliable, speed) {
             // Adjust smoothing factor based on GPS quality and speed
+            // Higher alpha = more responsive (follows GPS more closely)
+            // Lower alpha = more smoothing (reduces jitter but adds lag)
             let alpha = SMOOTHING_FACTOR;
 
-            // Less smoothing at high speeds for responsiveness
+            // Speed-based smoothing - prioritize responsiveness when moving
             if (speed > 25) { // >25 m/s (~56 mph)
-                alpha = 0.6; // More responsive
-            } else if (speed < 5) { // <5 m/s (~11 mph)
-                alpha = 0.2; // More smoothing
-            } else if (isUnreliable || accuracy > 25) {
-                alpha = 0.15; // Heavy smoothing for poor GPS
-            } else if (accuracy < 10) {
-                alpha = 0.5; // Less smoothing for high-quality GPS
+                alpha = 0.8; // Very responsive at high speeds
+            } else if (speed > 10) { // >10 m/s (~22 mph)
+                alpha = 0.7; // Responsive at moderate-high speeds
+            } else if (speed > 5) { // >5 m/s (~11 mph)
+                alpha = 0.6; // Fairly responsive at moderate speeds
+            } else if (speed > 1) { // >1 m/s (~2 mph) - slow movement
+                alpha = 0.4; // Balance between smooth and responsive
+            } else {
+                alpha = 0.2; // More smoothing when stationary/very slow
+            }
+
+            // Override with heavy smoothing for poor GPS quality
+            if (isUnreliable || accuracy > 25) {
+                alpha = Math.min(alpha, 0.3); // Cap responsiveness for unreliable GPS
             }
 
             // Initialize on first reading
@@ -2505,13 +2514,17 @@
                     );
 
                     if (newPosition) {
+                        const currentPos = userMarker.getLngLat();
+
                         // Update marker position
                         userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
 
-                        // Update rotation if heading is available
+                        // Update rotation - prefer GPS heading, fallback to movement direction
+                        let headingToUse = calculateBearing(currentPos.lat, currentPos.lng, newPosition.lat, newPosition.lng);
                         if (currentLocation && currentLocation.heading !== null) {
-                            updateMarkerRotation(currentLocation.heading);
+                            headingToUse = currentLocation.heading;
                         }
+                        updateMarkerRotation(headingToUse);
 
                         // Update cache
                         roadGeometryCache.currentPosition = newPosition;
@@ -2531,10 +2544,12 @@
 
                     userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
 
-                    // Update rotation if heading is available
+                    // Update rotation - prefer GPS heading, fallback to velocity direction
+                    let headingToUse = calculateBearing(currentPos.lat, currentPos.lng, lat, lng);
                     if (currentLocation && currentLocation.heading !== null) {
-                        updateMarkerRotation(currentLocation.heading);
+                        headingToUse = currentLocation.heading;
                     }
+                    updateMarkerRotation(headingToUse);
 
                     isExtrapolating = true;
                     markerAnimation = requestAnimationFrame(animate);
@@ -2542,6 +2557,20 @@
             }
 
             markerAnimation = requestAnimationFrame(animate);
+        }
+
+        // Calculate bearing (heading) between two points
+        function calculateBearing(lat1, lng1, lat2, lng2) {
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const lat1Rad = lat1 * Math.PI / 180;
+            const lat2Rad = lat2 * Math.PI / 180;
+
+            const y = Math.sin(dLng) * Math.cos(lat2Rad);
+            const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                      Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+
+            const bearing = Math.atan2(y, x) * 180 / Math.PI;
+            return (bearing + 360) % 360; // Normalize to 0-360
         }
 
         function smoothTransitionTo(targetLat, targetLng, duration = 500) {
@@ -2556,6 +2585,9 @@
             const startLng = currentPos.lng;
             const startTime = performance.now();
 
+            // Calculate heading from movement direction as fallback
+            const movementHeading = calculateBearing(startLat, startLng, targetLat, targetLng);
+
             function animate(currentTime) {
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
@@ -2566,10 +2598,12 @@
 
                 userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
 
-                // Update rotation if heading is available
+                // Update rotation - prefer GPS heading, fallback to calculated movement heading
+                let headingToUse = movementHeading;
                 if (currentLocation && currentLocation.heading !== null) {
-                    updateMarkerRotation(currentLocation.heading);
+                    headingToUse = currentLocation.heading;
                 }
+                updateMarkerRotation(headingToUse);
 
                 if (progress < 1) {
                     markerAnimation = requestAnimationFrame(animate);
@@ -2663,37 +2697,48 @@
                         return;
                     }
 
-                    // When moving at speed, use instant updates to prevent lag
+                    // Use speed-appropriate transition durations for smooth movement
                     const isMovingFast = currentLocation.speed > 5; // 5 m/s = ~11 mph
+                    const isMoving = currentLocation.speed > 0.5; // 0.5 m/s = ~1.1 mph
 
                     if (isMovingFast) {
-                        // Moving fast - use instant update or very short transition to prevent lag
-                        if (distanceFromMarkerToMatched > 10) {
-                            // Jump directly to position when moving fast - no animation lag
-                            marker.setLngLat([matchedPosition.lng, matchedPosition.lat]);
-                            console.log(`Instant update (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph): ${distanceFromMarkerToMatched.toFixed(1)}m deviation`);
+                        // Moving fast - use very short smooth transitions (200-300ms) to prevent lag while staying smooth
+                        if (distanceFromMarkerToMatched > 50) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 300);
+                        } else if (distanceFromMarkerToMatched > 20) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 250);
+                        } else if (distanceFromMarkerToMatched > 10) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 200);
                         }
-                        // Ensure animation is running for continuous movement
-                        if (!markerAnimation) {
-                            animateMarkerAlongRoad();
+                        console.log(`Quick smooth update (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph): ${distanceFromMarkerToMatched.toFixed(1)}m deviation`);
+                        return;
+                    } else if (isMoving) {
+                        // Moving slowly - use moderate transitions (400-600ms)
+                        if (distanceFromMarkerToMatched > 50) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 600);
+                            return;
+                        } else if (distanceFromMarkerToMatched > 20) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 500);
+                            return;
+                        } else if (distanceFromMarkerToMatched > 10) {
+                            smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 400);
+                            return;
                         }
                     } else {
-                        // Moving slowly or stationary - use smooth animations
+                        // Stationary - use longer smooth animations (800-1500ms) for visual appeal
                         if (distanceFromMarkerToMatched > 50) {
-                            // Large deviation (>50m) - smooth transition with longer duration
                             smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 1500);
                             return;
                         } else if (distanceFromMarkerToMatched > 20) {
-                            // Medium deviation (>20m) - moderate smooth transition
                             smoothTransitionTo(matchedPosition.lat, matchedPosition.lng, 800);
                             return;
                         }
-                        // Small deviations (<20m) - let animation naturally catch up
+                    }
 
-                        // Ensure animation is running if moving
-                        if (currentLocation.speed > 0.5 && !markerAnimation) {
-                            animateMarkerAlongRoad();
-                        }
+                    // Small deviations - let animation naturally catch up
+                    // Ensure animation is running if moving
+                    if (isMoving && !markerAnimation) {
+                        animateMarkerAlongRoad();
                     }
                 } else {
                     // No road geometry - fallback to straight-line
@@ -2702,13 +2747,16 @@
                     currentVelocity.lat = (newLat - currentLat) / avgInterval;
                     currentVelocity.lng = (newLng - currentLng) / avgInterval;
 
-                    // When moving fast, use instant update to prevent lag
+                    // Use speed-appropriate durations even without road geometry
                     const isMovingFast = currentLocation.speed > 5; // 5 m/s = ~11 mph
+                    const isMoving = currentLocation.speed > 0.5; // 0.5 m/s = ~1.1 mph
+
                     if (isMovingFast) {
-                        marker.setLngLat([newLng, newLat]);
-                        console.log(`Instant update - no road geometry (moving ${(currentLocation.speed * 2.237).toFixed(1)} mph)`);
+                        smoothTransitionTo(newLat, newLng, 250); // Quick smooth update
+                    } else if (isMoving) {
+                        smoothTransitionTo(newLat, newLng, 400); // Moderate smooth update
                     } else {
-                        smoothTransitionTo(newLat, newLng, 500);
+                        smoothTransitionTo(newLat, newLng, 500); // Slower when stationary
                     }
                 }
             } else {

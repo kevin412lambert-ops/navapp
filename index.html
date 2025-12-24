@@ -2505,6 +2505,14 @@
                     stationaryStartTime = null; // Reset when moving
                 }
 
+                // Calculate map offset for perspective mode
+                let yOffset = 0;
+                if (perspectiveMode) {
+                    const container = map.getContainer();
+                    const containerHeight = container.offsetHeight;
+                    yOffset = containerHeight * 0.25;
+                }
+
                 // Try road-following if we have geometry
                 if (roadGeometryCache.currentPosition && roadGeometryCache.currentPosition.segment) {
                     const newPosition = extrapolateAlongRoad(
@@ -2518,6 +2526,12 @@
 
                         // Update marker position
                         userMarker.setLngLat([newPosition.lng, newPosition.lat]); // [lng, lat] - REVERSED!
+
+                        // Keep map centered on marker
+                        map.jumpTo({
+                            center: [newPosition.lng, newPosition.lat],
+                            offset: [0, yOffset]
+                        });
 
                         // Update rotation - prefer GPS heading, fallback to movement direction
                         let headingToUse = calculateBearing(currentPos.lat, currentPos.lng, newPosition.lat, newPosition.lng);
@@ -2543,6 +2557,12 @@
                     const lng = currentPos.lng + (currentVelocity.lng * elapsedSinceLastUpdate);
 
                     userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+
+                    // Keep map centered on marker
+                    map.jumpTo({
+                        center: [lng, lat],
+                        offset: [0, yOffset]
+                    });
 
                     // Update rotation - prefer GPS heading, fallback to velocity direction
                     let headingToUse = calculateBearing(currentPos.lat, currentPos.lng, lat, lng);
@@ -2588,6 +2608,14 @@
             // Calculate heading from movement direction as fallback
             const movementHeading = calculateBearing(startLat, startLng, targetLat, targetLng);
 
+            // Calculate map offset for perspective mode
+            let yOffset = 0;
+            if (perspectiveMode) {
+                const container = map.getContainer();
+                const containerHeight = container.offsetHeight;
+                yOffset = containerHeight * 0.25;
+            }
+
             function animate(currentTime) {
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
@@ -2597,6 +2625,12 @@
                 const lng = startLng + (targetLng - startLng) * easeProgress;
 
                 userMarker.setLngLat([lng, lat]); // [lng, lat] - REVERSED!
+
+                // Keep map centered on marker during animation
+                map.jumpTo({
+                    center: [lng, lat],
+                    offset: [0, yOffset]
+                });
 
                 // Update rotation - prefer GPS heading, fallback to calculated movement heading
                 let headingToUse = movementHeading;

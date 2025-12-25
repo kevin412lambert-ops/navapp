@@ -1698,6 +1698,9 @@
 
                 console.log(`Auto-rotation ${autoRotationEnabled ? 'enabled' : 'disabled'}`);
 
+                // Update car icon rotation immediately
+                updateMarkerTransform();
+
                 // If enabling auto-rotation and we're in perspective mode, apply current heading
                 if (autoRotationEnabled && perspectiveMode && lastBearing !== null) {
                     map.easeTo({
@@ -1849,6 +1852,9 @@
                         // to preserve auto-rotation state in memory
                         perspectiveMode = false;
 
+                        // Update car icon rotation for 2D mode
+                        updateMarkerTransform();
+
                         if (currentLocation) {
                             map.easeTo({
                                 pitch: 0,
@@ -1888,6 +1894,9 @@
 
                         // Manually re-enable perspective mode
                         perspectiveMode = true;
+
+                        // Update car icon rotation for restored state
+                        updateMarkerTransform();
                         console.log(`perspectiveMode set to: ${perspectiveMode}`);
 
                         // Calculate center and offset for 3D mode
@@ -2374,9 +2383,17 @@
                         scaleFactor = Math.pow(2, zoomDiff);
                     }
 
+                    // Calculate rotation based on auto-rotation mode
+                    let rotation = currentHeading;
+                    if (autoRotationEnabled && perspectiveMode) {
+                        // When auto-rotation is enabled, the map rotates to match heading
+                        // So the car should point straight up (0 degrees) on the screen
+                        rotation = 0;
+                    }
+
                     // Apply both rotation and scale
                     // IMPORTANT: Don't transform markerEl itself - MapLibre uses that for positioning!
-                    svg.style.transform = `rotate(${currentHeading}deg) scale(${scaleFactor})`;
+                    svg.style.transform = `rotate(${rotation}deg) scale(${scaleFactor})`;
                 }
                 // Dot doesn't have SVG and doesn't need rotation or scaling
             }
@@ -4213,6 +4230,9 @@
             perspectiveMode = true;
             perspectiveToggleInProgress = true;
 
+            // Update car icon rotation for perspective mode
+            updateMarkerTransform();
+
             // Calculate center and offset for 3D mode
             const container = map.getContainer();
             const containerHeight = container.offsetHeight;
@@ -4260,6 +4280,9 @@
         function disablePerspectiveMode() {
             perspectiveMode = false;
             perspectiveToggleInProgress = true;
+
+            // Update car icon rotation for 2D mode
+            updateMarkerTransform();
 
             // Combine all animations into a single easeTo call to prevent conflicts
             if (currentLocation) {
@@ -4994,29 +5017,29 @@
             if (!map) return;
 
             const SPEED_THRESHOLD = 55;  // MPH
-            const HIGH_SPEED_ZOOM = 18;
+            const HIGH_SPEED_ZOOM = 16;  // Zoom OUT (lower number) when going fast
             const NORMAL_ZOOM = 17;
             const ANIMATION_DURATION = 3;  // seconds
 
             // Check if we need to zoom out (going fast)
-            if (speed > SPEED_THRESHOLD && !autoZoomState.isZoomedOut) {
-                // Speed exceeded threshold - zoom out to 18
+            if (speed >= SPEED_THRESHOLD && !autoZoomState.isZoomedOut) {
+                // Speed at/above threshold - zoom out to 16 for better overview
                 map.setZoom(HIGH_SPEED_ZOOM, {
                     animate: true,
                     duration: ANIMATION_DURATION
                 });
                 autoZoomState.isZoomedOut = true;
-                console.log(`Speed ${speed} mph > ${SPEED_THRESHOLD} mph - zooming out to ${HIGH_SPEED_ZOOM}`);
+                console.log(`Speed ${speed} mph >= ${SPEED_THRESHOLD} mph - zooming out to ${HIGH_SPEED_ZOOM}`);
             }
             // Check if we need to zoom back in (slowed down)
-            else if (speed <= SPEED_THRESHOLD && autoZoomState.isZoomedOut) {
+            else if (speed < SPEED_THRESHOLD && autoZoomState.isZoomedOut) {
                 // Speed dropped below threshold - zoom back in to 17
                 map.setZoom(NORMAL_ZOOM, {
                     animate: true,
                     duration: ANIMATION_DURATION
                 });
                 autoZoomState.isZoomedOut = false;
-                console.log(`Speed ${speed} mph <= ${SPEED_THRESHOLD} mph - zooming in to ${NORMAL_ZOOM}`);
+                console.log(`Speed ${speed} mph < ${SPEED_THRESHOLD} mph - zooming in to ${NORMAL_ZOOM}`);
             }
 
             autoZoomState.lastSpeed = speed;
